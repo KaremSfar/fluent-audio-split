@@ -29,10 +29,27 @@ public class Startup
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen();
 
-        // Database — SQLite for now
-        services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseSqlite(Configuration.GetConnectionString("DefaultConnection")
-                ?? "Data Source=fluent_audio_split.db"));
+        // Database — SQLite, ensure the data directory exists (Docker volume mount)
+        var connectionString = Configuration.GetConnectionString("DefaultConnection")
+            ?? "Data Source=fluent_audio_split.db";
+            
+        var dataSourcePath = connectionString
+            .Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim())
+            .FirstOrDefault(p => p.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
+            ?.Substring("Data Source=".Length);
+
+        if (!string.IsNullOrEmpty(dataSourcePath))
+        {
+            var dir = Path.GetDirectoryName(dataSourcePath);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+        }
+
+        services.AddDbContextFactory<ApplicationDbContext>(options =>
+            options.UseSqlite(connectionString));
+
+        services.AddHostedService<MigrationsService<ApplicationDbContext>>();
 
         // Identity
         services.AddIdentity<ApplicationUser, IdentityRole>(options =>
