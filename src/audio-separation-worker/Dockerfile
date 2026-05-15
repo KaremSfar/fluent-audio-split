@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["celery", "-A", "app.celery:celery_app", "worker", "--loglevel=info", "--concurrency=1"]
+CMD ["python", "run_consumer.py"]

@@ -1,4 +1,5 @@
-using FluentAudioSplit.Api.Services;
+using FluentAudioSplit.Api.Messages;
+using MassTransit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,20 +10,25 @@ namespace FluentAudioSplit.Api.Controllers;
 [Authorize]
 public class DummyController : ControllerBase
 {
-    private readonly IRabbitMqPublisher _publisher;
+    private readonly ISendEndpointProvider _sendEndpointProvider;
+    private readonly ILogger<DummyController> _logger;
 
-    public DummyController(IRabbitMqPublisher publisher)
+    public DummyController(ISendEndpointProvider sendEndpointProvider, ILogger<DummyController> logger)
     {
-        _publisher = publisher;
+        _sendEndpointProvider = sendEndpointProvider;
+        _logger = logger;
     }
 
     [HttpPost("hello")]
     public async Task<IActionResult> Hello()
     {
-        var taskId = await _publisher.PublishCeleryTaskAsync(
-            "audio.hello_world",
-            "Hello World from C# API!");
+        var endpoint = await _sendEndpointProvider.GetSendEndpoint(new Uri("queue:hello-world"));
 
-        return Ok(new { message = "Task published", taskId });
+        var command = new HelloWorldCommand { Message = "Hello World from C# API!" };
+        await endpoint.Send(command);
+
+        _logger.LogInformation("Published HelloWorldCommand to queue:hello-world");
+
+        return Ok(new { message = "Task published" });
     }
 }

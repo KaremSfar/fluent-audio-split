@@ -1,6 +1,6 @@
 using System.Text;
-using FluentAudioSplit.Api.Services;
 using FluentAudioSplit.Auth.Services;
+using MassTransit;
 using FluentAudioSplit.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -98,7 +98,25 @@ public class Startup
 
         // Auth services
         services.AddScoped<ITokenService, TokenService>();
-        services.AddScoped<IRabbitMqPublisher, RabbitMqPublisher>();
+
+        // MassTransit + RabbitMQ
+        var rabbitMqHost = Configuration["RabbitMq:Host"] ?? "localhost";
+        var rabbitMqUser = Configuration["RabbitMq:Username"] ?? "guest";
+        var rabbitMqPass = Configuration["RabbitMq:Password"] ?? "guest";
+
+        services.AddMassTransit(x =>
+        {
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                cfg.Host(rabbitMqHost, "/", h =>
+                {
+                    h.Username(rabbitMqUser);
+                    h.Password(rabbitMqPass);
+                });
+
+                cfg.ConfigureEndpoints(context);
+            });
+        });
 
         // OpenTelemetry
         services.AddOpenTelemetry()
