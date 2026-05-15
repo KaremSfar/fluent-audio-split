@@ -21,7 +21,7 @@ This is the **C# ASP.NET Web API backend** for **Fluent Audio Split** — an aud
 |---|---|---|
 | **Runtime** | .NET 10 | ASP.NET Core Web API |
 | **Auth** | ASP.NET Identity + JWT bearer tokens | `UserManager`/`SignInManager` + custom `ITokenService`. Frontend sends JWT in `Authorization` headers. |
-| **Database** | SQLite via EF Core (will migrate to PostgreSQL) | Code-first migrations. SQLite file: `fluent_audio_split.db` |
+| **Database** | SQLite via EF Core (will migrate to PostgreSQL) | Code-first migrations. In Docker: `/data/fluent_audio_split.db` (named volume). Locally: `fluent_audio_split.db` next to the binary. |
 | **Message Queue** | RabbitMQ via **MassTransit** (not yet wired) | Messages represent individual pipeline steps. |
 | **File Storage** | Local filesystem (Docker volume) | Abstracted behind an interface (`IFileStorage`) so S3 can be swapped in later. |
 | **Observability** | OpenTelemetry (`OpenTelemetry.Extensions.Hosting`) | TracerProvider + MeterProvider. Currently using `ConsoleExporter`. OTLP exporter is commented out pending collector setup. |
@@ -59,6 +59,7 @@ src/main-api/
 └── FluentAudioSplit.Infrastructure/        ← Class library: EF Core, repos
     └── Persistence/
         ├── ApplicationDbContext.cs         ← IdentityDbContext<ApplicationUser>
+        ├── MigrationsService.cs            ← IHostedService: runs MigrateAsync on startup
         └── Migrations/                     ← EF Core migrations
 ```
 
@@ -239,12 +240,17 @@ File paths are **relative to the shared volume mount**, never absolute.
 
 ---
 
-## Docker Setup (Planned)
+## Docker Setup
 
-| Service | Image | Port(s) |
-|---|---|---|
-| **api** | Standard ASP.NET Docker image | `5000` |
-| **postgres** | `postgres:16` | `5432` |
-| **rabbitmq** | `rabbitmq:3-management` | `5672` (AMQP), `15672` (management UI) |
-| **python-worker** | Custom (added later) | — |
+`docker compose up --build` from repo root starts:
+
+| Service | Build context | Port(s) | Notes |
+|---|---|---|---|
+| **api** | `src/main-api` | `8080` | Multi-stage .NET 10 build → aspnet runtime |
+| **front** | `src/front` | `3000` | Node build → nginx |
+
+SQLite database is stored in Docker named volume `api-data`, mounted at `/data` inside the container.  
+Connection string env override: `ConnectionStrings__DefaultConnection=Data Source=/data/fluent_audio_split.db`
+
+Planned additions: RabbitMQ, Python worker service.
 

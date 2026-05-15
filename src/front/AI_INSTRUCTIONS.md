@@ -21,7 +21,7 @@ The following setup steps must be run manually by a developer after cloning:
 | Routing | **React Router v6** |
 | Server State | **TanStack Query (React Query v5)** |
 | Telemetry | **OpenTelemetry** — initialized in `src/telemetry/otel.ts` |
-| Storybook | **Storybook 8** — stories in `src/stories/` |
+| Storybook | **Storybook 10** — stories in `src/stories/`. Addons (`addon-essentials`, `addon-interactions`, `blocks`, `test`) are bundled into the core `storybook` package at v10; do **not** add them as separate dependencies. |
 
 ## Folder Structure
 
@@ -44,7 +44,7 @@ src/
 
 | Variable | Default | Description |
 |---|---|---|
-| `VITE_SERVICE_URL` | `http://localhost:5001` | Backend API base URL |
+| `VITE_SERVICE_URL` | `http://localhost:8080` | Backend API base URL |
 | `VITE_OTEL_ENDPOINT` | `http://localhost:4318` | OpenTelemetry collector endpoint |
 
 ## Scripts
