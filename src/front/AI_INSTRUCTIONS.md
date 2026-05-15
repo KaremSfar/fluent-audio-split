@@ -29,15 +29,15 @@ The following setup steps must be run manually by a developer after cloning:
 src/
   auth/           # AuthContext, authService, useAuth hook
   components/
-    ui/           # shadcn/ui components (button, input, label, card, form)
+    ui/           # shadcn/ui components (button, input, label, card, form, badge, progress, table, separator, tabs)
     nodes/        # (reserved for future flow/node components)
-  hooks/          # Custom React hooks
+  hooks/          # Custom React hooks (useExecutionStream)
   lib/            # Utilities (utils.ts with cn())
   pages/          # Route-level page components
-  services/       # API clients (apiClient.ts)
+  services/       # API clients (apiClient.ts, filesService.ts, workflowsService.ts, executionsService.ts)
   stories/        # Storybook stories
   telemetry/      # OpenTelemetry setup
-  types/          # TypeScript type definitions
+  types/          # TypeScript type definitions (auth.ts, file.ts, workflow.ts, execution.ts)
 ```
 
 ## Environment Variables
@@ -55,3 +55,29 @@ src/
 | `npm run build` | Production build |
 | `npm run storybook` | Start Storybook on port 6006 |
 | `npm run build-storybook` | Build Storybook static site |
+
+## Pages & Routes
+
+| Route | Component | Description |
+|---|---|---|
+| `/dashboard` | `DashboardPage` | Home with navigation cards |
+| `/files` | `FilesPage` | Upload & manage audio files |
+| `/workflows/new` | `WorkflowBuilderPage` | Create workflow + start execution |
+| `/executions` | `ExecutionsListPage` | Execution history table |
+| `/executions/:id` | `ExecutionPage` | Live execution monitor with SSE |
+
+## Key Hooks
+
+- `useExecutionStream({ executionId, onNodeStatus, onExecutionStatus, enabled })` — subscribes to SSE stream via `@microsoft/fetch-event-source`. Auto-aborts when `enabled=false` or component unmounts.
+
+## API Services
+
+All services use `apiClient` (base: `VITE_SERVICE_URL/api`). URLs in services do **not** include `/api` prefix.
+
+- `filesService` — upload, list, delete, getDownloadUrl
+- `workflowsService` — create, list, get, delete
+- `executionsService` — start, list, get, retry, getResults
+
+## Auth Pattern
+
+JWT stored in `localStorage` under key `auth_token`. `apiClient` injects it as `Authorization: Bearer …`.

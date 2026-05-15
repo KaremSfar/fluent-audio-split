@@ -12,17 +12,17 @@ import signal
 from kombu import Connection, Exchange, Queue
 from kombu.mixins import ConsumerMixin
 
-from app.config import BROKER_URL
-from app.handlers import handle_hello_world
+from app.config import BROKER_URL, SHARED_DATA_PATH
+from app.handlers import handle_process_node
+from app.storage import LocalFileStorageProvider
 
 logger = logging.getLogger("worker.consumer")
 
-# MassTransit creates a fanout exchange with the queue name and binds the queue to it.
-hello_world_exchange = Exchange("hello-world", type="fanout", durable=True)
-hello_world_queue = Queue("hello-world", exchange=hello_world_exchange, durable=True)
+process_node_exchange = Exchange("process-node", type="fanout", durable=True)
+process_node_queue = Queue("process-node", exchange=process_node_exchange, durable=True)
 
 MESSAGE_HANDLERS: dict[str, callable] = {
-    "HelloWorldCommand": handle_hello_world,
+    "ProcessNodeCommand": handle_process_node,
 }
 
 
@@ -39,11 +39,12 @@ def _extract_message_type(message_types: list[str]) -> str | None:
 class MassTransitConsumer(ConsumerMixin):
     def __init__(self, connection: Connection) -> None:
         self.connection = connection
+        self.storage = LocalFileStorageProvider(SHARED_DATA_PATH)
 
     def get_consumers(self, consumer_class, channel):
         return [
             consumer_class(
-                queues=[hello_world_queue],
+                queues=[process_node_queue],
                 callbacks=[self.on_message],
             ),
         ]
@@ -59,7 +60,7 @@ class MassTransitConsumer(ConsumerMixin):
             handler = MESSAGE_HANDLERS.get(type_name)
             if handler:
                 logger.info("Dispatching %s", type_name)
-                handler(payload)
+                handler(payload, self.storage)
             else:
                 logger.warning("No handler for message type: %s", type_name)
 

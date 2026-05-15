@@ -1,1 +1,6 @@
-celery[librabbitmq]==5.5.*
+kombu>=5.3
+onnxruntime
+# torch and torchaudio are installed separately in the Dockerfile
+# from the official PyTorch CPU index to avoid timeout on the default PyPI CDN.
+# Use audio-separator without extras since torch is already present.
+audio-separator

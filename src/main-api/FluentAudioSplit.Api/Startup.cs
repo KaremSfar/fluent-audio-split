@@ -1,7 +1,10 @@
 using System.Text;
+using FluentAudioSplit.Api.Consumers;
+using FluentAudioSplit.Api.Services;
 using FluentAudioSplit.Auth.Services;
 using MassTransit;
 using FluentAudioSplit.Infrastructure.Persistence;
+using FluentAudioSplit.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -99,6 +102,11 @@ public class Startup
         // Auth services
         services.AddScoped<ITokenService, TokenService>();
 
+        services.AddHttpContextAccessor();
+        services.AddSingleton<ExecutionEventBus>();
+        services.AddSingleton<IFileStorageProvider>(sp =>
+            new LocalFileStorageProvider(Configuration["FileStorage:BasePath"] ?? "/data/audio"));
+
         // MassTransit + RabbitMQ
         var rabbitMqHost = Configuration["RabbitMq:Host"] ?? "localhost";
         var rabbitMqUser = Configuration["RabbitMq:Username"] ?? "guest";
@@ -106,6 +114,10 @@ public class Startup
 
         services.AddMassTransit(x =>
         {
+            x.AddConsumer<NodeStartedConsumer>();
+            x.AddConsumer<NodeCompletedConsumer>();
+            x.AddConsumer<NodeFailedConsumer>();
+
             x.UsingRabbitMq((context, cfg) =>
             {
                 cfg.Host(rabbitMqHost, "/", h =>
@@ -114,7 +126,25 @@ public class Startup
                     h.Password(rabbitMqPass);
                 });
 
-                cfg.ConfigureEndpoints(context);
+                // Explicit queue names that match what the Python worker publishes to.
+                // Python uses fanout exchanges named: node-started, node-completed, node-failed.
+                cfg.ReceiveEndpoint("node-started", e =>
+                {
+                    e.Bind("node-started", b => b.ExchangeType = "fanout");
+                    e.ConfigureConsumer<NodeStartedConsumer>(context);
+                });
+
+                cfg.ReceiveEndpoint("node-completed", e =>
+                {
+                    e.Bind("node-completed", b => b.ExchangeType = "fanout");
+                    e.ConfigureConsumer<NodeCompletedConsumer>(context);
+                });
+
+                cfg.ReceiveEndpoint("node-failed", e =>
+                {
+                    e.Bind("node-failed", b => b.ExchangeType = "fanout");
+                    e.ConfigureConsumer<NodeFailedConsumer>(context);
+                });
             });
         });
 
