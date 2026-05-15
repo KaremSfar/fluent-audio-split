@@ -73,7 +73,7 @@ public class Startup
         services.AddCors(options =>
         {
             options.AddPolicy("FrontendDev", policy =>
-                policy.WithOrigins("http://localhost:5173", "http://localhost:3000")
+                policy.SetIsOriginAllowed(p => true)
                       .AllowAnyHeader()
                       .AllowAnyMethod());
         });
@@ -112,6 +112,7 @@ public class Startup
             app.UseSwaggerUI();
         }
 
+        app.UseRouting();
         app.UseCors("FrontendDev");
         app.UseAuthentication();
         app.UseAuthorization();
