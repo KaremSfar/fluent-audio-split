@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "IeCEzGbjlg4=",
+  "success": true,
+  "projectFilePath": "/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Domain/FluentAudioSplit.Domain.csproj",
+  "expectedPackageFiles": [
+    "/home/karemsfar/.nuget/packages/microsoft.aspnetcore.app.ref/10.0.4/microsoft.aspnetcore.app.ref.10.0.4.nupkg.sha512"
+  ],
+  "logs": []
+}

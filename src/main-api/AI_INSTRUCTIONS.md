@@ -19,145 +19,227 @@ This is the **C# ASP.NET Web API backend** for **Fluent Audio Split** — an aud
 
 | Concern | Choice | Notes |
 |---|---|---|
-| **Runtime** | .NET 8+ (latest LTS) | ASP.NET Core Web API |
-| **Auth** | ASP.NET Identity + JWT bearer tokens | Use built-in `MapIdentityApi` endpoints — do **NOT** roll custom auth. Frontend sends JWT in `Authorization` headers. |
-| **Database** | PostgreSQL via EF Core (Npgsql provider) | Code-first migrations. |
-| **Message Queue** | RabbitMQ via **MassTransit** | Messages represent individual pipeline steps. |
+| **Runtime** | .NET 10 | ASP.NET Core Web API |
+| **Auth** | ASP.NET Identity + JWT bearer tokens | `UserManager`/`SignInManager` + custom `ITokenService`. Frontend sends JWT in `Authorization` headers. |
+| **Database** | SQLite via EF Core (will migrate to PostgreSQL) | Code-first migrations. SQLite file: `fluent_audio_split.db` |
+| **Message Queue** | RabbitMQ via **MassTransit** (not yet wired) | Messages represent individual pipeline steps. |
 | **File Storage** | Local filesystem (Docker volume) | Abstracted behind an interface (`IFileStorage`) so S3 can be swapped in later. |
-| **Observability** | OpenTelemetry (`OpenTelemetry.Extensions.Hosting`) | TracerProvider + MeterProvider with OTLP exporter. Instrument ASP.NET Core, HttpClient, EF Core, and MassTransit. Default to console/no-op exporter until OTel collector is added. |
-| **Logging** | `Microsoft.Extensions.Logging` with OTel log bridge | Logs flow into the same OTel pipeline. |
+| **Observability** | OpenTelemetry (`OpenTelemetry.Extensions.Hosting`) | TracerProvider + MeterProvider. Currently using `ConsoleExporter`. OTLP exporter is commented out pending collector setup. |
+| **Logging** | `Microsoft.Extensions.Logging` | Structured logging via ILogger<T>. |
+| **API Docs** | Swagger / Swashbuckle | Available at `/swagger` in Development. |
+
+---
+
+## Solution Structure
+
+```
+src/main-api/
+├── FluentAudioSplit.slnx                    ← Solution file (.NET 10 slnx format)
+├── FluentAudioSplit.Api/                    ← ASP.NET Web API project
+│   ├── Controllers/
+│   │   └── AuthController.cs               ← POST /api/auth/register, POST /api/auth/login
+│   ├── Program.cs                           ← Entry point; delegates to Startup
+│   ├── Startup.cs                           ← ConfigureServices + Configure
+│   └── appsettings.json
+│
+├── FluentAudioSplit.Auth/                   ← Class library: identity/auth logic
+│   ├── Models/
+│   │   ├── AuthResponse.cs
+│   │   ├── LoginRequest.cs
+│   │   └── RegisterRequest.cs
+│   └── Services/
+│       ├── ITokenService.cs
+│       └── TokenService.cs                 ← JWT generation
+│
+├── FluentAudioSplit.Domain/                 ← Class library: entities + interfaces
+│   └── Entities/
+│       ├── ApplicationUser.cs              ← Extends IdentityUser
+│       └── Workflow.cs
+│
+└── FluentAudioSplit.Infrastructure/        ← Class library: EF Core, repos
+    └── Persistence/
+        ├── ApplicationDbContext.cs         ← IdentityDbContext<ApplicationUser>
+        └── Migrations/                     ← EF Core migrations
+```
+
+---
+
+## How to Run
+
+```bash
+cd src/main-api/FluentAudioSplit.Api
+dotnet run
+# API starts on https://localhost:5001 (or http://localhost:5000)
+# Swagger UI: https://localhost:5001/swagger
+```
+
+---
+
+## How to Add EF Migrations
+
+```bash
+cd src/main-api
+export PATH="$PATH:$HOME/.dotnet/tools"   # if dotnet-ef not on PATH
+
+dotnet ef migrations add <MigrationName> \
+  --project FluentAudioSplit.Infrastructure/FluentAudioSplit.Infrastructure.csproj \
+  --startup-project FluentAudioSplit.Api/FluentAudioSplit.Api.csproj \
+  --context ApplicationDbContext \
+  --output-dir Persistence/Migrations
+
+# Apply migrations
+dotnet ef database update \
+  --project FluentAudioSplit.Infrastructure/FluentAudioSplit.Infrastructure.csproj \
+  --startup-project FluentAudioSplit.Api/FluentAudioSplit.Api.csproj
+```
+
+---
+
+## Auth Endpoints
+
+All routes are prefixed with `/api/auth`.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | `{ "email": "...", "password": "..." }` | `200 { message }` or `400 { errors }` |
+| `POST` | `/api/auth/login` | `{ "email": "...", "password": "..." }` | `200 AuthResponse` or `401` |
+
+`AuthResponse`:
+```json
+{
+  "accessToken": "<JWT>",
+  "tokenType": "Bearer",
+  "expiresIn": 3600,
+  "refreshToken": null
+}
+```
+
+Tokens expire after **1 hour**. Include in requests as: `Authorization: Bearer <accessToken>`.
+
+---
+
+## Configuration (`appsettings.json`)
+
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Data Source=fluent_audio_split.db"
+  },
+  "JwtSettings": {
+    "Secret": "dev-secret-key-at-least-32-chars-long-ok",
+    "Issuer": "fluent-audio-split",
+    "Audience": "fluent-audio-split-client"
+  },
+  "OpenTelemetry": {
+    "Endpoint": "http://localhost:4317"
+  }
+}
+```
+
+**In production**, override `JwtSettings:Secret` via environment variable: `JwtSettings__Secret`.
+
+---
+
+## OpenTelemetry Setup
+
+- Traces: `AddAspNetCoreInstrumentation` + `AddHttpClientInstrumentation` → **ConsoleExporter** (for now)
+- Metrics: `AddAspNetCoreInstrumentation` → **ConsoleExporter** (for now)
+- To switch to OTLP: uncomment the `AddOtlpExporter` line in `Startup.cs` and ensure the collector is running on `OpenTelemetry:Endpoint`.
 
 ---
 
 ## Core Domain Entities
 
-### User
-Standard ASP.NET Identity user. No custom fields required initially.
+### ApplicationUser
+Extends `IdentityUser`. Adds `CreatedAt` timestamp.
 
 ### Workflow
 A saved DAG definition belonging to a User.
-- Stored as a JSON blob of nodes, edges, and per-node model configurations.
-- A Workflow is a **template** — executing it creates a Job.
+- `GraphJson` — serialized JSON blob of the node graph
+- A Workflow is a **template** — executing it creates a Job (not yet implemented)
+
+---
+
+## Planned Entities (Not Yet Implemented)
 
 ### Job
-An execution instance of a Workflow. Belongs to a User.
-- **Statuses:** `Pending` → `Running` → `Completed` | `Failed`
+An execution instance of a Workflow. Statuses: `Pending` → `Running` → `Completed` | `Failed`
 
 ### JobStep
-An individual processing step within a Job. Maps to **one** model execution.
-- `inputFilePath` — relative path to the input audio file on the shared volume
-- `outputFilePaths[]` — relative paths to the output stems (populated after completion)
-- `modelFilename` — the model file to use (e.g. `htdemucs_ft.yaml`)
-- `modelParams` — model-specific parameters (JSON)
-- `status` — `Pending` | `Running` | `Completed` | `Failed`
-- `order` / dependency references — determines execution order within the DAG
+An individual processing step. Carries `inputFilePath`, `outputFilePaths[]`, `modelFilename`, `modelParams`, `status`.
 
 ---
 
 ## Key API Endpoints (Planned)
 
-### Authentication (Identity)
-- `POST /register` — Create account
-- `POST /login` — Obtain JWT
-
 ### Models
-- `GET /models` — Available audio-separator models with metadata (filename, architecture, output stems, SDR scores). Seeded/cached from the Python worker's model list.
+- `GET /api/models` — Available audio-separator models with metadata
 
 ### Workflows
-- `POST /workflows` — Save a workflow graph
-- `GET /workflows` — List current user's workflows
-- `GET /workflows/{id}` — Get a specific workflow
+- `POST /api/workflows` — Save a workflow graph
+- `GET /api/workflows` — List current user's workflows
+- `GET /api/workflows/{id}` — Get a specific workflow
 
 ### Execution
-- `POST /workflows/{id}/execute` — Submit workflow for execution → creates a Job, enqueues initial steps
-- `GET /jobs/{id}` — Job status + step statuses
-- `GET /jobs/{id}/results` — Download links for completed stems
-
-### Files
-- Upload/download endpoints for audio files (exact shape TBD)
+- `POST /api/workflows/{id}/execute` — Submit workflow → creates Job, enqueues steps
+- `GET /api/jobs/{id}` — Job status + step statuses
+- `GET /api/jobs/{id}/results` — Download links for completed stems
 
 ---
 
 ## Architecture Notes
 
-### Job Execution Flow
+### Job Execution Flow (Planned)
 ```
 Frontend submits workflow
   → API validates DAG
   → Creates Job + JobSteps in DB (status: Pending)
-  → Enqueues first step(s) (those with no upstream dependencies) to RabbitMQ
-  → Python worker picks up message, processes audio, publishes completion
-  → API MassTransit consumer marks step as Completed, writes output paths
-  → Consumer enqueues next dependent steps whose dependencies are all done
-  → Repeat until all steps complete (Job → Completed) or any step fails (Job → Failed)
+  → Enqueues first step(s) to RabbitMQ
+  → Python worker processes audio, publishes completion
+  → API MassTransit consumer marks step Completed, writes output paths
+  → Consumer enqueues next dependent steps
+  → Repeat until all steps complete (Job → Completed) or fail (Job → Failed)
 ```
 
-### MassTransit Message Contract
-Messages to the worker carry:
+### MassTransit Message Contract (Planned)
 ```json
 {
   "jobId": "guid",
   "stepId": "guid",
   "inputFilePath": "uploads/abc123/input.wav",
   "modelFilename": "htdemucs_ft.yaml",
-  "modelParams": { }
+  "modelParams": {}
 }
 ```
+
 File paths are **relative to the shared volume mount**, never absolute.
-
-### Model Registry
-The API maintains a cached list of available models and their metadata:
-- `filename` — model file identifier
-- `architecture` — MDX, MDXC, Demucs, or VR
-- `outputStems` — array of stem names (e.g. `["vocals", "drums", "bass", "other"]`)
-- `sdrScores` — signal-to-distortion ratio scores per stem
-
-This can be seeded from a static JSON file or fetched from the worker on startup.
-
-### Python Worker
-- Runs in a **separate container** within the same `docker-compose` stack.
-- **No authentication** between API and worker — they trust each other on the internal Docker network.
-- Shares the same RabbitMQ instance and file-storage volume with the API.
-
----
-
-## Folder Structure (Clean Architecture)
-
-```
-src/main-api/
-├── FluentAudioSplit.Api/           # ASP.NET project
-│   ├── Controllers/                # API controllers / minimal-API endpoint groups
-│   ├── Middleware/                  # Custom middleware (error handling, etc.)
-│   └── Program.cs                  # DI setup, pipeline config
-│
-├── FluentAudioSplit.Domain/        # Domain layer
-│   ├── Entities/                   # User, Workflow, Job, JobStep
-│   └── Interfaces/                 # IFileStorage, IJobOrchestrator, repository interfaces
-│
-├── FluentAudioSplit.Infrastructure/# Infrastructure layer
-│   ├── Persistence/                # EF Core DbContext, migrations, repository implementations
-│   ├── Messaging/                  # MassTransit consumers and producers
-│   └── Storage/                    # IFileStorage implementations (local, S3 later)
-│
-└── FluentAudioSplit.Contracts/     # Shared DTOs & message contracts
-    ├── Messages/                   # MassTransit message types (used by API and worker)
-    └── Dtos/                       # Request/response DTOs
-```
 
 ---
 
 ## Important Constraints
 
 1. **No Python in this project.** The API orchestrates via the queue only.
-2. **Relative file paths only** in all messages and DB records — relative to the shared Docker volume.
-3. **JWT expiry:** 1-hour access tokens. Refresh token support is optional for now.
+2. **Relative file paths only** in all messages and DB records.
+3. **JWT expiry:** 1-hour access tokens.
 4. **Async/await everywhere.** No blocking calls (`Task.Result`, `.Wait()`, `GetAwaiter().GetResult()`).
-5. **API and worker share** the same RabbitMQ instance and file-storage volume.
-6. **Do not roll custom auth.** Use `MapIdentityApi` and the built-in Identity token endpoints.
+5. **Do NOT roll custom password hashing.** Use ASP.NET Identity (`UserManager`, `SignInManager`).
+6. **All controllers** use `[Route("api/[controller]")]` prefix.
+7. **Startup class pattern** — `Program.cs` delegates to `Startup.ConfigureServices` and `Startup.Configure`. Do NOT collapse back to minimal API style.
 
 ---
 
-## Docker Setup
+## Coding Conventions
+
+- Standard C# naming: PascalCase public, `_camelCase` private fields.
+- Nullable reference types enabled (`<Nullable>enable</Nullable>`).
+- Keep controllers thin — business logic belongs in services/domain layer.
+- Register dependencies via `IServiceCollection` extension methods per layer (e.g. `AddInfrastructure()`, `AddAuth()`).
+- Use the Options pattern (`IOptions<T>`) for typed config sections.
+- Use `FluentValidation` or Data Annotations for request validation.
+
+---
+
+## Docker Setup (Planned)
 
 | Service | Image | Port(s) |
 |---|---|---|
@@ -166,15 +248,3 @@ src/main-api/
 | **rabbitmq** | `rabbitmq:3-management` | `5672` (AMQP), `15672` (management UI) |
 | **python-worker** | Custom (added later) | — |
 
-All services are defined in a single `docker-compose.yml` at the repository root (or `src/`).
-
----
-
-## Coding Conventions
-
-- Follow standard C# / .NET naming conventions (PascalCase for public members, `_camelCase` for private fields).
-- Use **nullable reference types** (`<Nullable>enable</Nullable>`).
-- Prefer **minimal APIs** or thin controllers — keep business logic in services/domain layer.
-- Register dependencies via `IServiceCollection` extensions per layer (e.g. `AddInfrastructure()`, `AddDomain()`).
-- Configuration via `appsettings.json` + environment variables. Use the Options pattern (`IOptions<T>`) for typed config sections.
-- Use `FluentValidation` or Data Annotations for request validation.

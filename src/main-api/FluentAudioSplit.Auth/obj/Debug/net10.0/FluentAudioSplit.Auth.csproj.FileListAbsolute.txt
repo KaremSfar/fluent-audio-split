@@ -1,0 +1,16 @@
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/bin/Debug/net10.0/FluentAudioSplit.Auth.deps.json
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/bin/Debug/net10.0/FluentAudioSplit.Auth.dll
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/bin/Debug/net10.0/FluentAudioSplit.Auth.pdb
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/bin/Debug/net10.0/FluentAudioSplit.Domain.dll
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/bin/Debug/net10.0/FluentAudioSplit.Domain.pdb
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/FluentAudioSplit.Auth.csproj.AssemblyReference.cache
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/FluentAudioSplit.Auth.GeneratedMSBuildEditorConfig.editorconfig
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/FluentAudioSplit.Auth.AssemblyInfoInputs.cache
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/FluentAudioSplit.Auth.AssemblyInfo.cs
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/FluentAudioSplit.Auth.csproj.CoreCompileInputs.cache
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/FluentAudioSplit.Auth.sourcelink.json
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/FluentAu.6DE67E5B.Up2Date
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/FluentAudioSplit.Auth.dll
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/refint/FluentAudioSplit.Auth.dll
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/FluentAudioSplit.Auth.pdb
+/home/karemsfar/Repos/fluent-audio-split.worktrees/agents-audio-splitter-app-architecture/src/main-api/FluentAudioSplit.Auth/obj/Debug/net10.0/ref/FluentAudioSplit.Auth.dll
