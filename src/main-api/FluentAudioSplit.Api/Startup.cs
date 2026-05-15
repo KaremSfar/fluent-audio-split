@@ -1,4 +1,5 @@
 using System.Text;
+using FluentAudioSplit.Api.Services;
 using FluentAudioSplit.Auth.Services;
 using FluentAudioSplit.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -97,6 +98,7 @@ public class Startup
 
         // Auth services
         services.AddScoped<ITokenService, TokenService>();
+        services.AddScoped<IRabbitMqPublisher, RabbitMqPublisher>();
 
         // OpenTelemetry
         services.AddOpenTelemetry()

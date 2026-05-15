@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/auth/useAuth';
 import { Button } from '@/components/ui/button';
 import { useEffect } from 'react';
@@ -50,6 +50,11 @@ export default function DashboardPage() {
           <p className="text-muted-foreground">
             Signed in as <span className="font-medium text-foreground">{user?.email}</span>
           </p>
+          <div className="pt-4">
+            <Link to="/dummy">
+              <Button variant="outline">🧪 Hello World Test</Button>
+            </Link>
+          </div>
         </div>
       </main>
     </div>
