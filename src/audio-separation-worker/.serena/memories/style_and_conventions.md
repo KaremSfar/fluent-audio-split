@@ -1,39 +1,32 @@
 # Code Style and Conventions
 
 ## Language & Types
-- **TypeScript** with strict mode
-- Use proper type annotations on all function signatures and component props
-- Auth types defined in `src/types/auth.ts`
+- **Python 3.12+** with type hints on all function signatures
+- Use `snake_case` everywhere (variables, functions, modules)
 
-## Component Patterns
-- **Functional components** only (React 19)
-- Use `export default function ComponentName()` pattern
-- Use **react-hook-form** + **zod** for form validation (see LoginPage, RegisterPage)
-- Use **@tanstack/react-query** `useMutation` for API mutations (see AuthContext)
-- Use **useAuth()** hook for auth context — never use `useContext(AuthContext)` directly
+## Patterns
+- Use `logging` module, never `print()`
+- All Celery task names prefixed with `audio.` (e.g. `audio.health_check`)
+- Tasks and handlers must be **idempotent** (safe to retry)
+- File paths in messages are always **relative** — use `storage.get_absolute_path()` to resolve
 
-## UI Components
-- **shadcn/ui** components from `@/components/ui/` — Button, Card, Form, Input, etc.
-- Composable: use `CardHeader`, `CardContent`, `CardFooter` etc.
-- Styling via **Tailwind CSS 3** utility classes
-- Use `cn()` from `@/lib/utils` for conditional class merging (clsx + tailwind-merge)
+## Message Handling
+- MassTransit JSON envelope format: `{"messageType": [...], "message": {...}}`
+- Consumer extracts `messageType` URN to dispatch to correct handler
+- Handler dispatch lives in `app/handlers.py` via the `MESSAGE_HANDLERS` dict in `consumer.py`
+- Publisher wraps outgoing events in MassTransit envelope format before sending
 
-## API Calls
-- Use `apiClient` from `@/services/apiClient` (Axios instance with JWT interceptor)
-- Never construct axios instances directly
-- API base path is `/api` (appended to VITE_SERVICE_URL)
+## Storage
+- Always access files via `FileStorageProvider.get_absolute_path(relative_path)`
+- Never build absolute paths directly from message data
+- `LocalFileStorageProvider` prepends `SHARED_DATA_PATH` config value
 
-## Auth Guards
-- Protected pages use `useEffect` + `useAuth()` to redirect to `/login` if not authenticated
-- Pattern: check `isLoading` and `isAuthenticated`, navigate if needed
+## Dependencies
+- `kombu` — AMQP messaging (ConsumerMixin pattern)
+- `audio-separator` — ML audio source separation (wraps demucs models)
+- `torch` / `torchaudio` — installed separately from PyTorch CPU index in Dockerfile
+- `onnxruntime` — inference runtime for some models
 
-## File Organization
-- Pages in `src/pages/`
-- Auth logic in `src/auth/`
-- Shared UI in `src/components/ui/`
-- API service layer in `src/services/`
-- Type definitions in `src/types/`
-
-## Imports
-- Use `@/` path alias (maps to `src/`)
-- Example: `import { Button } from '@/components/ui/button'`
+## Error Handling
+- On handler failure: publish `NodeFailedEvent` with error message and `isTransient` flag
+- Consumer acks messages after processing (success or handled failure)

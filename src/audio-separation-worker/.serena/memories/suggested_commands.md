@@ -1,42 +1,32 @@
 # Suggested Commands
 
-All commands run from `/home/karemsfar/Repos/fluent-audio-split/src/front` unless noted.
+All commands run from `/home/karemsfar/Repos/fluent-audio-split/src/audio-separation-worker` unless noted.
 
-## Development
+## Run Consumer (locally)
 ```bash
-npm run dev
-# Starts Vite dev server (usually http://localhost:5173)
+export RABBITMQ_HOST=localhost
+python run_consumer.py
 ```
 
-## Build
+## Run Celery Worker (utility tasks)
 ```bash
-npm run build
-# Runs tsc -b && vite build → outputs to dist/
+celery -A app.celery:celery_app worker --loglevel=info
 ```
 
-## Lint
+## Install Dependencies
 ```bash
-npm run lint
-# Runs ESLint
-```
-
-## Storybook
-```bash
-npm run storybook
-# Starts Storybook on port 6006
+pip install -r requirements.txt
+# Note: torch/torchaudio must be installed from PyTorch CPU index:
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 ```
 
 ## Docker (from repo root)
 ```bash
-docker compose up --build front
-# Builds and serves via nginx on port 3000
+docker compose up --build audio-separation-worker
 ```
 
-## Adding shadcn/ui components
-```bash
-npx shadcn@latest add <component-name>
-# e.g. npx shadcn@latest add dialog
-```
+## Lint / Type Check
+No linter or type checker is configured in this project yet. Use `mypy` or `ruff` if added.
 
 ## Tests
 No test framework is configured yet.

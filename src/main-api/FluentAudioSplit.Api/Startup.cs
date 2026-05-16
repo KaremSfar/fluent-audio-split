@@ -76,7 +76,8 @@ public class Startup
             options.AddPolicy("FrontendDev", policy =>
                 policy.SetIsOriginAllowed(p => true)
                       .AllowAnyHeader()
-                      .AllowAnyMethod());
+                      .AllowAnyMethod()
+                      .SetPreflightMaxAge(TimeSpan.FromHours(1)));
         });
 
         services.AddHttpContextAccessor();
