@@ -8,4 +8,7 @@ public class WorkflowNode
     public int Order { get; set; }
     public string NodeType { get; set; } = string.Empty;
     public string ConfigJson { get; set; } = "{}";
+    public Guid? SourceNodeId { get; set; }
+    public string? SourceOutputName { get; set; }
+    public WorkflowNode? SourceNode { get; set; }
 }

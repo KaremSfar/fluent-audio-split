@@ -2,12 +2,11 @@ import json
 import logging
 from pathlib import Path
 
+from app.models import DEFAULT_MODEL, MODEL_STEMS
 from app.publisher import publish_node_completed, publish_node_failed, publish_node_started
 from app.storage import FileStorageProvider
 
 logger = logging.getLogger("worker.handlers")
-
-DEFAULT_MODEL = "htdemucs_ft.yaml"
 
 
 def handle_process_node(payload: dict, storage: FileStorageProvider) -> None:
@@ -35,9 +34,8 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
     config = json.loads(payload.get("configJson", "{}"))
 
     model_name = config.get("modelName", DEFAULT_MODEL)
-    # Ensure Demucs models have the .yaml extension
-    if "." not in model_name:
-        model_name = f"{model_name}.yaml"
+    stems = MODEL_STEMS.get(model_name, ["Vocals", "Instrumental"])
+    output_names = {stem: stem for stem in stems}
 
     try:
         abs_input = storage.get_absolute_path(input_path)
@@ -54,20 +52,33 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
 
         separator = Separator(output_dir=str(abs_output_dir))
         separator.load_model(model_filename=model_name)
-        output_files: list[str] = separator.separate(str(abs_input))
+        output_files: list[str] = separator.separate(str(abs_input), output_names)
 
         abs_base = storage.get_absolute_path("").resolve()
-        relative_outputs: list[str] = []
+        output_map: dict[str, str] = {}
+
         for f in output_files:
             p = Path(f).resolve()
             try:
                 rel = str(p.relative_to(abs_base))
             except ValueError:
                 rel = str(Path(output_dir) / p.name)
-            relative_outputs.append(rel)
 
-        logger.info("Separation complete. Outputs: %s", relative_outputs)
-        publish_node_completed(workflow_execution_id, node_execution_id, relative_outputs)
+            # Match the output file to a stem name
+            file_stem = p.stem
+            matched_stem = None
+            for stem in stems:
+                if stem.lower() in file_stem.lower() or file_stem.lower() in stem.lower():
+                    matched_stem = stem
+                    break
+
+            if matched_stem:
+                output_map[matched_stem] = rel
+            else:
+                output_map[file_stem] = rel
+
+        logger.info("Separation complete. Outputs: %s", output_map)
+        publish_node_completed(workflow_execution_id, node_execution_id, output_map)
 
     except Exception as e:
         logger.exception("Audio separation failed")

@@ -11,7 +11,7 @@ public class NodeExecution
     public NodeExecutionStatus Status { get; set; } = NodeExecutionStatus.Pending;
     public string? InputArtifactPath { get; set; }
     public string? OutputArtifactDir { get; set; }
-    public string? OutputArtifactPathsJson { get; set; } // JSON array of individual file paths
+    public string? OutputArtifactPathsJson { get; set; } // JSON object: stem name -> file path
     public string? ErrorMessage { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? StartedAt { get; set; }

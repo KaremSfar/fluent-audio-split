@@ -15,7 +15,7 @@ COPY requirements.txt .
 # This avoids pip trying to resolve & download the full GPU wheel (~2GB)
 # through the default PyPI CDN which is prone to timeout in CI/Docker builds.
 RUN pip install --no-cache-dir --timeout 300 --retries 5 \
-    torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # Install the rest of the dependencies
 RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt

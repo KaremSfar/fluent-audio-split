@@ -62,6 +62,14 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
              .OnDelete(DeleteBehavior.Cascade);
         });
 
+        builder.Entity<WorkflowNode>(e =>
+        {
+            e.HasOne(n => n.SourceNode)
+             .WithMany()
+             .HasForeignKey(n => n.SourceNodeId)
+             .OnDelete(DeleteBehavior.SetNull);
+        });
+
         builder.Entity<NodeExecution>(e =>
         {
             e.HasKey(ne => ne.Id);

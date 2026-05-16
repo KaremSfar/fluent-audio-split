@@ -45,7 +45,7 @@ def publish_node_started(
 def publish_node_completed(
     workflow_execution_id: str,
     node_execution_id: str,
-    output_artifact_paths: list[str],
+    output_artifact_paths: dict[str, str],
 ) -> None:
     message = {
         "workflowExecutionId": workflow_execution_id,

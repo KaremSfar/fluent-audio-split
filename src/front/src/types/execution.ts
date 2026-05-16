@@ -7,7 +7,7 @@ export interface NodeExecution {
   attempt: number;
   status: NodeExecutionStatus;
   outputArtifactDir?: string;
-  outputArtifactPaths: string[];
+  outputArtifactPaths: Record<string, string>;
   errorMessage?: string;
   startedAt?: string;
   completedAt?: string;
@@ -29,7 +29,7 @@ export interface NodeStatusEvent {
   nodeExecutionId: string;
   status: NodeExecutionStatus;
   attempt: number;
-  outputPaths?: string[];
+  outputPaths?: Record<string, string>;
   errorMessage?: string;
 }
 

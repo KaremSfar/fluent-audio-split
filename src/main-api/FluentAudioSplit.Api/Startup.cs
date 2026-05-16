@@ -134,8 +134,8 @@ public class Startup
                     .SetResourceBuilder(ResourceBuilder.CreateDefault()
                         .AddService("fluent-audio-split-api"))
                     .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
-                    .AddConsoleExporter(); // Switch to OTLP when collector is available
+                    .AddHttpClientInstrumentation();
+                    // .AddConsoleExporter(); // Switch to OTLP when collector is available
                     // Uncomment when OTel collector is ready:
                     // .AddOtlpExporter(o => o.Endpoint = new Uri(Configuration["OpenTelemetry:Endpoint"] ?? "http://localhost:4317"));
             })
@@ -144,8 +144,8 @@ public class Startup
                 metrics
                     .SetResourceBuilder(ResourceBuilder.CreateDefault()
                         .AddService("fluent-audio-split-api"))
-                    .AddAspNetCoreInstrumentation()
-                    .AddConsoleExporter();
+                    .AddAspNetCoreInstrumentation();
+                    // .AddConsoleExporter();
             });
     }
 

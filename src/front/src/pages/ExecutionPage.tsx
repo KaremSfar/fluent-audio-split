@@ -233,15 +233,16 @@ function NodeExecutionCard({
           </Button>
         )}
 
-        {node.status === 'Completed' && node.outputArtifactPaths.length > 0 && (
+        {node.status === 'Completed' && Object.keys(node.outputArtifactPaths).length > 0 && (
           <div className="space-y-2">
             <p className="text-sm font-medium">Download Stems</p>
             <ul className="space-y-1">
-              {node.outputArtifactPaths.map((path) => (
-                <li key={path}>
+              {Object.entries(node.outputArtifactPaths).map(([stem, path]) => (
+                <li key={stem} className="flex items-center gap-2">
+                  <span className="font-medium text-violet-600 min-w-[80px]">{stem}</span>
                   <button
                     onClick={() => filesService.download(path).catch(console.error)}
-                    className="text-sm text-primary hover:underline text-left"
+                    className="text-sm text-primary hover:underline text-left truncate"
                   >
                     ⬇ {path.split('/').pop() ?? path}
                   </button>

@@ -3,6 +3,8 @@ export interface WorkflowNode {
   order: number;
   nodeType: string;
   configJson: string;
+  sourceNodeId: string | null;
+  sourceOutputName: string | null;
 }
 
 export interface Workflow {
@@ -17,6 +19,8 @@ export interface CreateWorkflowNodeRequest {
   order: number;
   nodeType: string;
   configJson: string;
+  sourceNodeId: string | null;
+  sourceOutputName: string | null;
 }
 
 export interface CreateWorkflowRequest {
@@ -29,6 +33,8 @@ export interface UpdateWorkflowNodeRequest {
   order: number;
   nodeType: string;
   configJson: string;
+  sourceNodeId: string | null;
+  sourceOutputName: string | null;
 }
 
 export interface UpdateWorkflowRequest {

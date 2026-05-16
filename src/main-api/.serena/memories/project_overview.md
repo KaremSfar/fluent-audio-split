@@ -1,68 +1,57 @@
 # Project Overview: fluent-audio-split main-api
 
 ## Purpose
-C# ASP.NET Core Web API backend for **Fluent Audio Split** — an audio stem-splitter app with a visual workflow/DAG editor.
-- Users create visual audio-splitting pipelines on the React frontend, submit them, and this API **orchestrates their execution**.
-- Actual ML inference (audio source separation) is done by a **Python background worker** using `audio-separator`, communicating via **RabbitMQ**.
-- This API is a **pure orchestrator** — it never runs Python directly.
+C# ASP.NET Core Web API backend for **Fluent Audio Split**. Orchestrates multi-node audio DAG workflow execution. The actual ML inference is performed by a Python worker via RabbitMQ.
 
 ## Tech Stack
 | Concern | Choice |
 |---|---|
 | Runtime | .NET 10, ASP.NET Core Web API |
-| Auth | ASP.NET Identity API Endpoints (`AddIdentityApiEndpoints` + `MapIdentityApi`) — bearer tokens, 2FA, email verification built-in |
-| Database | SQLite via EF Core (planned: PostgreSQL). Code-first migrations. |
-| Message Queue | RabbitMQ via **MassTransit** (`MassTransit.RabbitMQ` v8.5.x (v9+ is commercial/licensed)). C# publishes to named queues; Python worker consumes via kombu. |
-| File Storage | Local filesystem, abstracted behind `IFileStorage` (shared Docker volume `shared-audio` at `/data/audio`) |
-| Observability | OpenTelemetry (`OpenTelemetry.Extensions.Hosting`) — ConsoleExporter for now |
-| Logging | `Microsoft.Extensions.Logging` / `ILogger<T>` |
-| API Docs | Swagger/Swashbuckle — available at `/swagger` in Development |
+| Auth | ASP.NET Identity + custom JWT (`ITokenService`) |
+| Database | SQLite (dev) / PostgreSQL (prod) via EF Core. Code-first migrations. |
+| Message Queue | RabbitMQ via MassTransit. Sends `ProcessNodeCommand`; consumes `NodeCompletedEvent`, `NodeStartedEvent`, `NodeFailedEvent`. |
+| File Storage | Local filesystem, `IFileStorageProvider` / `LocalFileStorageProvider`. BasePath: `/data/audio` (Docker shared volume). |
+| Real-time | Server-Sent Events via singleton `ExecutionEventBus`. |
+| Observability | OpenTelemetry (ConsoleExporter for now, OTLP-ready). |
+| API Docs | Swagger/Swashbuckle at `/swagger`. |
 
 ## Solution Structure
 ```
 src/main-api/
-├── FluentAudioSplit.slnx
-├── FluentAudioSplit.Api/          ← ASP.NET Web API entry point
-│   ├── Controllers/
-│   │   └── DummyController.cs     ← POST /api/dummy/hello (sends HelloWorldCommand via MassTransit)
-│   ├── Messages/
-│   │   └── HelloWorldCommand.cs   ← MassTransit message contract
-│   ├── Program.cs                 ← delegates to Startup
-│   ├── Startup.cs                 ← ConfigureServices + Configure (incl. MassTransit registration)
-│   └── appsettings.json
-├── FluentAudioSplit.Auth/         ← REMOVED (replaced by built-in Identity API endpoints)
-├── FluentAudioSplit.Domain/       ← Entities (ApplicationUser, Workflow) + interfaces
-└── FluentAudioSplit.Infrastructure/ ← EF Core, ApplicationDbContext, MigrationsService, Migrations
+├── FluentAudioSplit.Api/
+│   ├── Controllers/         # Workflows, Executions, Files, Models (+ Auth via MapIdentityApi)
+│   ├── Consumers/           # NodeStartedConsumer, NodeCompletedConsumer, NodeFailedConsumer
+│   ├── Messages/            # ProcessNodeCommand, NodeCompletedEvent, NodeFailedEvent, NodeStartedEvent
+│   ├── Dtos/                # WorkflowDtos, ExecutionDtos
+│   └── Services/            # ExecutionEventBus (SSE)
+├── FluentAudioSplit.Domain/
+│   ├── Entities/            # Workflow, WorkflowNode, WorkflowExecution, NodeExecution, FileRecord
+│   └── Models/              # StemDefinitions (model→stems registry)
+└── FluentAudioSplit.Infrastructure/
+    └── Persistence/         # ApplicationDbContext, Migrations
 ```
 
-## Auth Endpoints (via MapIdentityApi)
-- `POST /api/auth/register` — `{ email, password }` → 200 or 400
-- `POST /api/auth/login` — `{ email, password }` → 200 `{ tokenType, accessToken, expiresIn, refreshToken }` or 401
-- `POST /api/auth/refresh` — token refresh
-- Plus: 2FA, email confirmation, password reset endpoints (built-in)
-- Uses ASP.NET Identity bearer tokens (not JWT)
+## Domain Entities
+- **Workflow** → has many **WorkflowNode**
+- **WorkflowNode**: `Id`, `WorkflowId`, `Order`, `NodeType` ("AudioSeparation"), `ConfigJson` (`{modelName}`), `SourceNodeId?` (FK to parent node), `SourceOutputName?` (stem name from parent)
+- **WorkflowExecution** → has many **NodeExecution**
+- **NodeExecution**: `WorkflowNodeId`, `InputArtifactPath`, `OutputArtifactDir`, `OutputArtifactPaths` (JSON `{stemName: path}`), `Status`
 
-## Configuration (appsettings.json)
-- `ConnectionStrings:DefaultConnection` — SQLite path
-- `JwtSettings:Secret` / `Issuer` / `Audience`
-- `OpenTelemetry:Endpoint`
-- In production override: `JwtSettings__Secret` env var
+## Execution Flow
+1. `POST /api/workflows/{id}/execute` → creates `WorkflowExecution` + `NodeExecution` rows for root nodes (SourceNodeId = null), dispatches `ProcessNodeCommand`
+2. `NodeCompletedConsumer` → marks node done, finds downstream nodes (SourceNodeId = completedNodeId), creates their `NodeExecution`s, dispatches new `ProcessNodeCommand`
+3. Completion check: workflow is done when ALL nodes have a completed `NodeExecution`
 
-## Docker
+## Key Notes
+- `StemDefinitions.ModelStems` (Domain/Models) must be kept in sync with worker `models.py` and frontend `lib/models.ts`
+- Model filenames **must** include extension (`htdemucs_ft.yaml`, `UVR-MDX-NET-Inst_HQ_3.onnx`, `vocals_mel_band_roformer.ckpt`)
+- `WorkflowsController.Update` uses `ExecuteUpdateAsync`/`ExecuteDeleteAsync` (bulk SQL) to avoid EF concurrency issues
+
+## Auth Endpoints
+- `POST /api/auth/register` — `{ email, password }`
+- `POST /api/auth/login` — `{ email, password }` → `{ accessToken, … }`
+
+## Docker Config
 - `docker compose up --build` from repo root
-- Services: `api` (8080), `front` (3000), `rabbitmq` (5672 internal, 15672 management UI), `worker` (kombu consumer)
-- SQLite in named volume `api-data` at `/data`; shared audio in `shared-audio` at `/data/audio`
-- API env vars: `RabbitMq__Host`, `RabbitMq__Username`, `RabbitMq__Password`
-
-## MassTransit Integration
-- MassTransit is registered in `Startup.ConfigureServices` via `services.AddMassTransit(...)` with RabbitMQ transport
-- Controllers inject `ISendEndpointProvider` to send messages to named queues (e.g. `queue:hello-world`)
-- Message contracts live in `FluentAudioSplit.Api/Messages/`
-- The Python worker (`src/audio-separation-worker`) consumes MassTransit messages via kombu, unwrapping the MassTransit JSON envelope
-
-## Planned but Not Yet Implemented
-- `Job`, `JobStep` entities and execution pipeline
-- MassTransit consumers for worker completion events
-- `/api/models`, `/api/workflows`, `/api/jobs` endpoints
-- PostgreSQL migration
-- Remove DummyController (test-only scaffold)
+- API port: 8080, DB in `api-data` volume, audio in `shared-audio` volume
+- Env: `RabbitMq__Host`, `RabbitMq__Username`, `RabbitMq__Password`, `ConnectionStrings__DefaultConnection`

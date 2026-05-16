@@ -45,7 +45,7 @@ export function useExecutionStream({
               nodeExecutionId: data.nodeExecutionId as string,
               status: type === 'NodeStarted' ? 'Running' : type === 'NodeCompleted' ? 'Completed' : 'Failed',
               attempt: (data.attempt as number) ?? 1,
-              outputPaths: (data.outputArtifactPaths as string[]) ?? undefined,
+              outputPaths: (data.outputArtifactPaths as Record<string, string>) ?? undefined,
               errorMessage: data.errorMessage as string | undefined,
             });
           } else if (type === 'ExecutionRunning' || type === 'ExecutionCompleted' || type === 'ExecutionPartiallyFailed') {

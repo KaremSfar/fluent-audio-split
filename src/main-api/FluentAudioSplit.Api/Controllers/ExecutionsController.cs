@@ -146,7 +146,7 @@ public class ExecutionsController : ControllerBase
         var paths = execution.NodeExecutions
             .Where(ne => ne.Status == NodeExecutionStatus.Completed && ne.OutputArtifactPathsJson != null)
             .SelectMany(ne =>
-                JsonSerializer.Deserialize<List<string>>(ne.OutputArtifactPathsJson!) ?? new List<string>())
+                JsonSerializer.Deserialize<Dictionary<string, string>>(ne.OutputArtifactPathsJson!)?.Values ?? Enumerable.Empty<string>())
             .ToList();
 
         return Ok(paths);
@@ -172,7 +172,7 @@ public class ExecutionsController : ControllerBase
         ne.Status.ToString(),
         ne.OutputArtifactDir,
         ne.OutputArtifactPathsJson != null
-            ? JsonSerializer.Deserialize<List<string>>(ne.OutputArtifactPathsJson) ?? new()
+            ? JsonSerializer.Deserialize<Dictionary<string, string>>(ne.OutputArtifactPathsJson) ?? new()
             : new(),
         ne.ErrorMessage,
         ne.StartedAt,

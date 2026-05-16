@@ -6,7 +6,7 @@ public record NodeExecutionDto(
     int Attempt,
     string Status,
     string? OutputArtifactDir,
-    List<string> OutputArtifactPaths,
+    Dictionary<string, string> OutputArtifactPaths,
     string? ErrorMessage,
     DateTime? StartedAt,
     DateTime? CompletedAt);

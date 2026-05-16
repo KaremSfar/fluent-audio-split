@@ -34,7 +34,7 @@ export default function NewWorkflowPage() {
       workflowsService.create({
         name,
         // Start with a default AudioSeparation node (model will be configured on canvas)
-        nodes: [{ order: 0, nodeType: 'AudioSeparation', configJson: JSON.stringify({ modelName: 'htdemucs_ft' }) }],
+        nodes: [{ order: 0, nodeType: 'AudioSeparation', configJson: JSON.stringify({ modelName: 'htdemucs_ft.yaml' }), sourceNodeId: null, sourceOutputName: null }],
       }),
     onSuccess: (workflow) => navigate(`/workflows/${workflow.id}`),
   });

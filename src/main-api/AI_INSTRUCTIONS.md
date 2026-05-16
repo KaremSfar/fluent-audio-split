@@ -38,18 +38,20 @@ src/main-api/
 ├── FluentAudioSplit.slnx                    ← Solution file (.NET 10 slnx format)
 ├── FluentAudioSplit.Api/                    ← ASP.NET Web API project
 │   ├── Consumers/
-│   │   ├── NodeCompletedConsumer.cs         ← MassTransit: handles NodeCompletedEvent
+│   │   ├── NodeStartedConsumer.cs           ← MassTransit: handles NodeStartedEvent
+│   │   ├── NodeCompletedConsumer.cs         ← MassTransit: chains downstream nodes + completes execution
 │   │   └── NodeFailedConsumer.cs            ← MassTransit: handles NodeFailedEvent
 │   ├── Controllers/
 │   │   ├── AuthController.cs               ← POST /api/auth/register, POST /api/auth/login
 │   │   ├── ExecutionsController.cs         ← /api/executions (CRUD + SSE stream + retry)
 │   │   ├── FilesController.cs              ← /api/files (upload, list, delete, download)
-│   │   └── WorkflowsController.cs          ← /api/workflows (CRUD)
+│   │   ├── ModelsController.cs             ← GET /api/models (list available models + stems)
+│   │   └── WorkflowsController.cs          ← /api/workflows (CRUD + execute)
 │   ├── Dtos/
 │   │   ├── ExecutionDtos.cs                ← NodeExecutionDto, WorkflowExecutionDto, StartExecutionRequest
 │   │   └── WorkflowDtos.cs                 ← FileRecordDto, WorkflowNodeDto, WorkflowDto, CreateWorkflowRequest
 │   ├── Messages/
-│   │   ├── HelloWorldCommand.cs
+│   │   ├── NodeStartedEvent.cs             ← Published by Python worker when node begins
 │   │   ├── NodeCompletedEvent.cs           ← Published by Python worker when node finishes
 │   │   ├── NodeFailedEvent.cs              ← Published by Python worker on failure
 │   │   └── ProcessNodeCommand.cs           ← Sent to queue:process-node to trigger Python worker
@@ -69,6 +71,8 @@ src/main-api/
 │       └── TokenService.cs                 ← JWT generation
 │
 ├── FluentAudioSplit.Domain/                 ← Class library: entities + enums
+│   ├── Models/
+│   │   └── StemDefinitions.cs              ← Static model→stems registry
 │   └── Entities/
 │       ├── ApplicationUser.cs              ← Extends IdentityUser
 │       ├── FileRecord.cs                   ← Uploaded audio file metadata
@@ -77,7 +81,7 @@ src/main-api/
 │       ├── Workflow.cs                     ← Workflow template (has Nodes collection)
 │       ├── WorkflowExecution.cs            ← A run of a Workflow against an input file
 │       ├── WorkflowExecutionStatus.cs      ← Enum: Pending, Running, Completed, PartiallyFailed, Failed, Cancelled
-│       └── WorkflowNode.cs                 ← A step definition inside a Workflow
+│       └── WorkflowNode.cs                 ← A step definition: model, SourceNodeId?, SourceOutputName?
 │
 └── FluentAudioSplit.Infrastructure/        ← Class library: EF Core, storage
     ├── Persistence/
@@ -299,7 +303,7 @@ Frontend GET /api/executions/{id}/stream (SSE)
 {
   "workflowExecutionId": "guid",
   "nodeExecutionId": "guid",
-  "outputArtifactPaths": ["executions/.../stems/vocals.wav", "..."]
+  "outputArtifactPaths": { "Vocals": "executions/.../stems/Vocals.wav", "Drums": "..." }
 }
 ```
 

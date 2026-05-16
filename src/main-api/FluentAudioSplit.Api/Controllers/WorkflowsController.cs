@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using FluentAudioSplit.Api.Dtos;
 using FluentAudioSplit.Api.Messages;
 using FluentAudioSplit.Api.Services;
@@ -42,7 +43,9 @@ public class WorkflowsController : ControllerBase
             {
                 Order = n.Order,
                 NodeType = n.NodeType,
-                ConfigJson = n.ConfigJson
+                ConfigJson = n.ConfigJson,
+                SourceNodeId = n.SourceNodeId,
+                SourceOutputName = n.SourceOutputName
             }).ToList()
         };
 
@@ -89,45 +92,66 @@ public class WorkflowsController : ControllerBase
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var workflow = await db.Workflows
-            .Include(w => w.Nodes)
             .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId, ct);
 
         if (workflow is null) return NotFound();
 
-        workflow.Name = request.Name;
-        workflow.UpdatedAt = DateTime.UtcNow;
+        // Update workflow header directly (bypasses EF tracking on nodes)
+        await db.Workflows
+            .Where(w => w.Id == id)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(w => w.Name, request.Name)
+                .SetProperty(w => w.UpdatedAt, DateTime.UtcNow), ct);
 
-        // Remove nodes no longer in the request
-        var incomingIds = request.Nodes.Where(n => n.Id.HasValue).Select(n => n.Id!.Value).ToHashSet();
-        var toRemove = workflow.Nodes.Where(n => !incomingIds.Contains(n.Id)).ToList();
-        db.WorkflowNodes.RemoveRange(toRemove);
+        var incomingIds = request.Nodes
+            .Where(n => n.Id.HasValue)
+            .Select(n => n.Id!.Value)
+            .ToList();
 
-        foreach (var nodeReq in request.Nodes)
+        // Delete nodes no longer in the request (skip nodes that have executions — Restrict FK)
+        await db.WorkflowNodes
+            .Where(n => n.WorkflowId == id && !incomingIds.Contains(n.Id))
+            .ExecuteDeleteAsync(ct);
+
+        // Update existing nodes directly
+        foreach (var nodeReq in request.Nodes.Where(n => n.Id.HasValue))
         {
-            if (nodeReq.Id.HasValue)
-            {
-                var existing = workflow.Nodes.FirstOrDefault(n => n.Id == nodeReq.Id.Value);
-                if (existing is not null)
-                {
-                    existing.Order = nodeReq.Order;
-                    existing.NodeType = nodeReq.NodeType;
-                    existing.ConfigJson = nodeReq.ConfigJson;
-                }
-            }
-            else
-            {
-                workflow.Nodes.Add(new WorkflowNode
-                {
-                    WorkflowId = workflow.Id,
-                    Order = nodeReq.Order,
-                    NodeType = nodeReq.NodeType,
-                    ConfigJson = nodeReq.ConfigJson,
-                });
-            }
+            await db.WorkflowNodes
+                .Where(n => n.Id == nodeReq.Id!.Value)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(n => n.Order, nodeReq.Order)
+                    .SetProperty(n => n.NodeType, nodeReq.NodeType)
+                    .SetProperty(n => n.ConfigJson, nodeReq.ConfigJson)
+                    .SetProperty(n => n.SourceNodeId, nodeReq.SourceNodeId)
+                    .SetProperty(n => n.SourceOutputName, nodeReq.SourceOutputName), ct);
         }
 
-        await db.SaveChangesAsync(ct);
-        return Ok(ToDto(workflow));
+        // Insert new nodes
+        var newNodes = request.Nodes
+            .Where(n => !n.Id.HasValue)
+            .Select(n => new WorkflowNode
+            {
+                WorkflowId = id,
+                Order = n.Order,
+                NodeType = n.NodeType,
+                ConfigJson = n.ConfigJson,
+                SourceNodeId = n.SourceNodeId,
+                SourceOutputName = n.SourceOutputName,
+            })
+            .ToList();
+
+        if (newNodes.Count > 0)
+        {
+            db.WorkflowNodes.AddRange(newNodes);
+            await db.SaveChangesAsync(ct);
+        }
+
+        // Reload the full workflow to return the updated state
+        var updated = await db.Workflows
+            .Include(w => w.Nodes)
+            .FirstAsync(w => w.Id == id, ct);
+
+        return Ok(ToDto(updated));
     }
 
     [HttpDelete("{id:guid}")]
@@ -175,43 +199,52 @@ public class WorkflowsController : ControllerBase
 
         db.WorkflowExecutions.Add(execution);
 
-        var firstNode = workflow.Nodes.OrderBy(n => n.Order).First();
-        var nodeExec = new NodeExecution
-        {
-            WorkflowExecutionId = execution.Id,
-            WorkflowNodeId = firstNode.Id,
-            Status = NodeExecutionStatus.Queued,
-            InputArtifactPath = fileRecord.StoragePath,
-            OutputArtifactDir = $"executions/{execution.Id}/nodes/{Guid.NewGuid()}/"
-        };
+        var rootNodes = workflow.Nodes.Where(n => n.SourceNodeId == null).ToList();
+        var nodeExecs = new List<NodeExecution>();
 
-        db.NodeExecutions.Add(nodeExec);
+        foreach (var rootNode in rootNodes)
+        {
+            var nodeExec = new NodeExecution
+            {
+                WorkflowExecutionId = execution.Id,
+                WorkflowNodeId = rootNode.Id,
+                Status = NodeExecutionStatus.Queued,
+                InputArtifactPath = fileRecord.StoragePath,
+                OutputArtifactDir = $"executions/{execution.Id}/nodes/{Guid.NewGuid()}/"
+            };
+            db.NodeExecutions.Add(nodeExec);
+            nodeExecs.Add(nodeExec);
+        }
+
         await db.SaveChangesAsync(ct);
 
         var endpoint = await _sendEndpoint.GetSendEndpoint(new Uri("queue:process-node"));
-        await endpoint.Send(new ProcessNodeCommand
+        foreach (var nodeExec in nodeExecs)
         {
-            WorkflowExecutionId = execution.Id,
-            NodeExecutionId = nodeExec.Id,
-            NodeType = firstNode.NodeType,
-            InputArtifactPath = nodeExec.InputArtifactPath,
-            OutputArtifactDir = nodeExec.OutputArtifactDir,
-            ConfigJson = firstNode.ConfigJson
-        }, ct);
+            var workflowNode = rootNodes.First(n => n.Id == nodeExec.WorkflowNodeId);
+            await endpoint.Send(new ProcessNodeCommand
+            {
+                WorkflowExecutionId = execution.Id,
+                NodeExecutionId = nodeExec.Id,
+                NodeType = workflowNode.NodeType,
+                InputArtifactPath = nodeExec.InputArtifactPath ?? string.Empty,
+                OutputArtifactDir = nodeExec.OutputArtifactDir ?? string.Empty,
+                ConfigJson = workflowNode.ConfigJson
+            }, ct);
+        }
 
         execution.Status = WorkflowExecutionStatus.Running;
         await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Started execution {ExecutionId} for workflow {WorkflowId}", execution.Id, workflow.Id);
 
-        var nodeExecs = new List<NodeExecution> { nodeExec };
         return Ok(new WorkflowExecutionDto(
             execution.Id,
             execution.WorkflowId,
             workflow.Name,
             new FileRecordDto(fileRecord.Id, fileRecord.OriginalFileName, fileRecord.ContentType, fileRecord.SizeBytes, fileRecord.CreatedAt),
             execution.Status.ToString(),
-            nodeExecs.Select(ne => new NodeExecutionDto(ne.Id, ne.WorkflowNodeId, ne.Attempt, ne.Status.ToString(), ne.OutputArtifactDir, ne.OutputArtifactPathsJson != null ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(ne.OutputArtifactPathsJson) ?? new() : new(), ne.ErrorMessage, ne.StartedAt, ne.CompletedAt)).ToList(),
+            nodeExecs.Select(ne => new NodeExecutionDto(ne.Id, ne.WorkflowNodeId, ne.Attempt, ne.Status.ToString(), ne.OutputArtifactDir, ne.OutputArtifactPathsJson != null ? JsonSerializer.Deserialize<Dictionary<string, string>>(ne.OutputArtifactPathsJson) ?? new() : new(), ne.ErrorMessage, ne.StartedAt, ne.CompletedAt)).ToList(),
             execution.CreatedAt,
             execution.CompletedAt,
             execution.ErrorMessage));
@@ -220,7 +253,7 @@ public class WorkflowsController : ControllerBase
     private static WorkflowDto ToDto(Workflow w) => new(
         w.Id,
         w.Name,
-        w.Nodes.OrderBy(n => n.Order).Select(n => new WorkflowNodeDto(n.Id, n.Order, n.NodeType, n.ConfigJson)).ToList(),
+        w.Nodes.OrderBy(n => n.Order).Select(n => new WorkflowNodeDto(n.Id, n.Order, n.NodeType, n.ConfigJson, n.SourceNodeId, n.SourceOutputName)).ToList(),
         w.CreatedAt,
         w.UpdatedAt);
 }
