@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { login as loginService, register as registerService, logout as logoutService, refreshToken as refreshTokenService } from './authService';
 import type { LoginRequest, RegisterRequest, User, AuthResponse } from '@/types/auth';
@@ -84,13 +84,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mutationFn: registerService,
   });
 
+  // Destructure only the stable mutateAsync functions so the useCallbacks below
+  // don't recreate whenever mutation status changes (idle → pending → success).
+  const { mutateAsync: loginMutateAsync } = loginMutation;
+  const { mutateAsync: registerMutateAsync } = registerMutation;
+
   const login = useCallback(async (req: LoginRequest) => {
-    await loginMutation.mutateAsync(req);
-  }, [loginMutation]);
+    await loginMutateAsync(req);
+  }, [loginMutateAsync]);
 
   const register = useCallback(async (req: RegisterRequest) => {
-    await registerMutation.mutateAsync(req);
-  }, [registerMutation]);
+    await registerMutateAsync(req);
+  }, [registerMutateAsync]);
 
   const logout = useCallback(() => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
@@ -99,17 +104,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
+  const contextValue = useMemo(() => ({
+    user,
+    isAuthenticated: !!user,
+    isLoading,
+    login,
+    register,
+    logout,
+  }), [user, isLoading, login, register, logout]);
+
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated: !!user,
-        isLoading,
-        login,
-        register,
-        logout,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

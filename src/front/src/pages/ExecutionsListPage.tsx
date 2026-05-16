@@ -38,7 +38,6 @@ export default function ExecutionsListPage() {
     queryKey: ['executions'],
     queryFn: executionsService.list,
     enabled: isAuthenticated,
-    refetchInterval: 5000,
   });
 
   if (isLoading) {
