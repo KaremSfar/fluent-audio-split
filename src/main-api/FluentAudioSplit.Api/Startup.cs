@@ -1,14 +1,11 @@
-using System.Text;
 using FluentAudioSplit.Api.Consumers;
 using FluentAudioSplit.Api.Services;
-using FluentAudioSplit.Auth.Services;
 using MassTransit;
 using FluentAudioSplit.Infrastructure.Persistence;
 using FluentAudioSplit.Infrastructure.Storage;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.BearerToken;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -55,37 +52,20 @@ public class Startup
 
         services.AddHostedService<MigrationsService<ApplicationDbContext>>();
 
-        // Identity
-        services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+        // Identity API endpoints (provides /register, /login, /refresh, 2FA, email confirmation, etc.)
+        services.AddIdentityApiEndpoints<ApplicationUser>(options =>
         {
             options.Password.RequireDigit = true;
             options.Password.RequiredLength = 8;
             options.Password.RequireNonAlphanumeric = false;
             options.User.RequireUniqueEmail = true;
         })
-        .AddEntityFrameworkStores<ApplicationDbContext>()
-        .AddDefaultTokenProviders();
+        .AddEntityFrameworkStores<ApplicationDbContext>();
 
-        // JWT Authentication
-        var jwtSettings = Configuration.GetSection("JwtSettings");
-        var secret = jwtSettings["Secret"] ?? "default-dev-secret-change-in-production-please";
-        services.AddAuthentication(options =>
+        services.Configure<BearerTokenOptions>(IdentityConstants.BearerScheme, options =>
         {
-            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-        })
-        .AddJwtBearer(options =>
-        {
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
-                ValidIssuer = jwtSettings["Issuer"],
-                ValidAudience = jwtSettings["Audience"],
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret))
-            };
+            options.BearerTokenExpiration = TimeSpan.FromMinutes(5);
+            options.RefreshTokenExpiration = TimeSpan.FromDays(14);
         });
 
         services.AddAuthorization();
@@ -98,9 +78,6 @@ public class Startup
                       .AllowAnyHeader()
                       .AllowAnyMethod());
         });
-
-        // Auth services
-        services.AddScoped<ITokenService, TokenService>();
 
         services.AddHttpContextAccessor();
         services.AddSingleton<ExecutionEventBus>();
@@ -184,5 +161,6 @@ public class Startup
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapControllers();
+        app.MapGroup("/api/auth").MapIdentityApi<ApplicationUser>();
     }
 }

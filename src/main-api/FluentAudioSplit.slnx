@@ -1,6 +1,6 @@
 <Solution>
   <Project Path="FluentAudioSplit.Api/FluentAudioSplit.Api.csproj" />
-  <Project Path="FluentAudioSplit.Auth/FluentAudioSplit.Auth.csproj" />
+
   <Project Path="FluentAudioSplit.Domain/FluentAudioSplit.Domain.csproj" />
   <Project Path="FluentAudioSplit.Infrastructure/FluentAudioSplit.Infrastructure.csproj" />
 </Solution>

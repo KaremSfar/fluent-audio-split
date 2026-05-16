@@ -3,7 +3,6 @@ WORKDIR /src
 
 COPY FluentAudioSplit.slnx ./
 COPY FluentAudioSplit.Api/FluentAudioSplit.Api.csproj FluentAudioSplit.Api/
-COPY FluentAudioSplit.Auth/FluentAudioSplit.Auth.csproj FluentAudioSplit.Auth/
 COPY FluentAudioSplit.Domain/FluentAudioSplit.Domain.csproj FluentAudioSplit.Domain/
 COPY FluentAudioSplit.Infrastructure/FluentAudioSplit.Infrastructure.csproj FluentAudioSplit.Infrastructure/
 RUN dotnet restore

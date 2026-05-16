@@ -10,7 +10,7 @@ C# ASP.NET Core Web API backend for **Fluent Audio Split** — an audio stem-spl
 | Concern | Choice |
 |---|---|
 | Runtime | .NET 10, ASP.NET Core Web API |
-| Auth | ASP.NET Identity + JWT bearer tokens (`UserManager`/`SignInManager` + `ITokenService`) |
+| Auth | ASP.NET Identity API Endpoints (`AddIdentityApiEndpoints` + `MapIdentityApi`) — bearer tokens, 2FA, email verification built-in |
 | Database | SQLite via EF Core (planned: PostgreSQL). Code-first migrations. |
 | Message Queue | RabbitMQ via **MassTransit** (`MassTransit.RabbitMQ` v8.5.x (v9+ is commercial/licensed)). C# publishes to named queues; Python worker consumes via kombu. |
 | File Storage | Local filesystem, abstracted behind `IFileStorage` (shared Docker volume `shared-audio` at `/data/audio`) |
@@ -24,22 +24,23 @@ src/main-api/
 ├── FluentAudioSplit.slnx
 ├── FluentAudioSplit.Api/          ← ASP.NET Web API entry point
 │   ├── Controllers/
-│   │   ├── AuthController.cs      ← POST /api/auth/register, /api/auth/login
 │   │   └── DummyController.cs     ← POST /api/dummy/hello (sends HelloWorldCommand via MassTransit)
 │   ├── Messages/
 │   │   └── HelloWorldCommand.cs   ← MassTransit message contract
 │   ├── Program.cs                 ← delegates to Startup
 │   ├── Startup.cs                 ← ConfigureServices + Configure (incl. MassTransit registration)
 │   └── appsettings.json
-├── FluentAudioSplit.Auth/         ← JWT/identity logic (ITokenService, TokenService, request/response models)
+├── FluentAudioSplit.Auth/         ← REMOVED (replaced by built-in Identity API endpoints)
 ├── FluentAudioSplit.Domain/       ← Entities (ApplicationUser, Workflow) + interfaces
 └── FluentAudioSplit.Infrastructure/ ← EF Core, ApplicationDbContext, MigrationsService, Migrations
 ```
 
-## Auth Endpoints
+## Auth Endpoints (via MapIdentityApi)
 - `POST /api/auth/register` — `{ email, password }` → 200 or 400
-- `POST /api/auth/login` — `{ email, password }` → 200 `AuthResponse` or 401
-- JWT tokens expire after **1 hour**, sent as `Authorization: Bearer <token>`
+- `POST /api/auth/login` — `{ email, password }` → 200 `{ tokenType, accessToken, expiresIn, refreshToken }` or 401
+- `POST /api/auth/refresh` — token refresh
+- Plus: 2FA, email confirmation, password reset endpoints (built-in)
+- Uses ASP.NET Identity bearer tokens (not JWT)
 
 ## Configuration (appsettings.json)
 - `ConnectionStrings:DefaultConnection` — SQLite path
