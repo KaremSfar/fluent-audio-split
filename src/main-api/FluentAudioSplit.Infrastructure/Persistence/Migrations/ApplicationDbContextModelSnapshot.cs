@@ -84,6 +84,89 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.FileRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("StoragePath")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("FileRecords");
+                });
+
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.NodeExecution", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InputArtifactPath")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OutputArtifactDir")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OutputArtifactPathsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("WorkflowExecutionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("WorkflowNodeId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkflowExecutionId");
+
+                    b.HasIndex("WorkflowNodeId");
+
+                    b.ToTable("NodeExecutions");
+                });
+
             modelBuilder.Entity("FluentAudioSplit.Domain.Entities.Workflow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -91,10 +174,6 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("GraphJson")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
@@ -113,6 +192,80 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Workflows");
+                });
+
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.WorkflowExecution", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("InputFileRecordId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("WorkflowId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InputFileRecordId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("WorkflowId");
+
+                    b.ToTable("WorkflowExecutions");
+                });
+
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.WorkflowNode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ConfigJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NodeType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("SourceNodeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceOutputName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("WorkflowId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceNodeId");
+
+                    b.HasIndex("WorkflowId");
+
+                    b.ToTable("WorkflowNodes");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
@@ -243,6 +396,36 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.FileRecord", b =>
+                {
+                    b.HasOne("FluentAudioSplit.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.NodeExecution", b =>
+                {
+                    b.HasOne("FluentAudioSplit.Domain.Entities.WorkflowExecution", "WorkflowExecution")
+                        .WithMany("NodeExecutions")
+                        .HasForeignKey("WorkflowExecutionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("FluentAudioSplit.Domain.Entities.WorkflowNode", "WorkflowNode")
+                        .WithMany()
+                        .HasForeignKey("WorkflowNodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("WorkflowExecution");
+
+                    b.Navigation("WorkflowNode");
+                });
+
             modelBuilder.Entity("FluentAudioSplit.Domain.Entities.Workflow", b =>
                 {
                     b.HasOne("FluentAudioSplit.Domain.Entities.ApplicationUser", "User")
@@ -252,6 +435,51 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.WorkflowExecution", b =>
+                {
+                    b.HasOne("FluentAudioSplit.Domain.Entities.FileRecord", "InputFileRecord")
+                        .WithMany()
+                        .HasForeignKey("InputFileRecordId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FluentAudioSplit.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("FluentAudioSplit.Domain.Entities.Workflow", "Workflow")
+                        .WithMany()
+                        .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("InputFileRecord");
+
+                    b.Navigation("User");
+
+                    b.Navigation("Workflow");
+                });
+
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.WorkflowNode", b =>
+                {
+                    b.HasOne("FluentAudioSplit.Domain.Entities.WorkflowNode", "SourceNode")
+                        .WithMany()
+                        .HasForeignKey("SourceNodeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("FluentAudioSplit.Domain.Entities.Workflow", "Workflow")
+                        .WithMany("Nodes")
+                        .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SourceNode");
+
+                    b.Navigation("Workflow");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -303,6 +531,16 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.Workflow", b =>
+                {
+                    b.Navigation("Nodes");
+                });
+
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.WorkflowExecution", b =>
+                {
+                    b.Navigation("NodeExecutions");
                 });
 #pragma warning restore 612, 618
         }

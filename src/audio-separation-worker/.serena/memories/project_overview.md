@@ -1,71 +1,63 @@
-# Project Overview: fluent-audio-split frontend
+# Project Overview: audio-separation-worker
 
 ## Purpose
-React SPA frontend for **Fluent Audio Split** — an audio stem-splitter app with a visual workflow/DAG editor.
-Users log in, create audio-splitting pipelines, submit them, and view results. Communicates with the C# API backend (`src/main-api`) via REST + JWT auth.
+Python background worker for **Fluent Audio Split**. Consumes `ProcessNodeCommand` messages from RabbitMQ (published by the C# API via MassTransit), runs ML-based audio source separation, and publishes `NodeStarted/Completed/Failed` events back.
+
+- No HTTP endpoints. No user auth. Pure consumer.
+- Audio files exchanged via a shared Docker volume (`/data/audio`). Paths in messages are always **relative** to this mount.
 
 ## Tech Stack
 | Concern | Choice |
 |---|---|
-| Framework | React 19 with TypeScript 6.x |
-| Build Tool | Vite 8.x |
-| Routing | react-router-dom v7 |
-| State/Data | @tanstack/react-query v5, React Context (auth) |
-| HTTP Client | Axios (with JWT interceptor) |
-| Forms | react-hook-form + zod validation + @hookform/resolvers |
-| UI Components | shadcn/ui (Radix primitives + Tailwind CSS 3) |
-| Icons | lucide-react, @radix-ui/react-icons |
-| Styling | Tailwind CSS 3, class-variance-authority, tailwind-merge, clsx |
-| Observability | OpenTelemetry (web SDK, fetch instrumentation) |
-| Storybook | Storybook 10 for component dev |
+| Runtime | Python 3.12 (slim Docker image) |
+| Message Consumer | `kombu` (`ConsumerMixin`) — consumes MassTransit JSON envelopes |
+| Broker | RabbitMQ (`amqp://`) — shared with C# API |
+| Audio Separation | `audio-separator[cpu]` (nomadkaraoke/python-audio-separator) |
+| Config | Environment variables (see `app/config.py`) |
 
 ## Directory Structure
 ```
-src/front/src/
-├── App.tsx                  ← Main routing component (BrowserRouter + Routes)
-├── main.tsx                 ← Entry point
-├── auth/
-│   ├── AuthContext.tsx       ← AuthProvider context (login, register, logout, token hydration)
-│   ├── authService.ts       ← API calls (login, register, logout)
-│   └── useAuth.ts           ← useContext(AuthContext) hook
-├── components/ui/           ← shadcn/ui components (Button, Card, Form, Input, etc.)
-├── lib/                     ← Utility functions (cn helper for tailwind-merge)
-├── pages/
-│   ├── LoginPage.tsx         ← Login form with zod validation
-│   ├── RegisterPage.tsx      ← Registration form
-│   ├── DashboardPage.tsx     ← Protected dashboard (auth guard via useEffect)
-│   └── DummyPage.tsx         ← Test page: sends HelloWorldCommand to API
-├── services/
-│   └── apiClient.ts          ← Axios instance (base URL from VITE_SERVICE_URL, auto-attaches JWT)
-├── telemetry/                ← OpenTelemetry setup
-├── stories/                  ← Storybook stories
-└── types/
-    └── auth.ts               ← TypeScript interfaces (LoginRequest, RegisterRequest, AuthResponse, User)
+src/audio-separation-worker/
+├── Dockerfile
+├── requirements.txt
+├── run_consumer.py             ← Entry point for the kombu consumer
+└── app/
+    ├── models.py               ← MODEL_STEMS dict + DEFAULT_MODEL
+    ├── handlers.py             ← ProcessNodeCommand dispatch + _handle_audio_separation
+    ├── consumer.py             ← MassTransitConsumer (kombu ConsumerMixin)
+    ├── publisher.py            ← publish_node_started/completed/failed
+    ├── storage.py              ← FileStorageProvider / LocalFileStorageProvider
+    ├── config.py               ← Env-based config constants
+    ├── celery.py               ← Celery app instance (utility tasks)
+    └── tasks.py                ← Celery tasks (health_check)
 ```
 
-## Routes
-| Path | Component | Auth Required |
-|---|---|---|
-| `/login` | LoginPage | No |
-| `/register` | RegisterPage | No |
-| `/dashboard` | DashboardPage | Yes (redirect to /login) |
-| `/dummy` | DummyPage | Yes (redirect to /login) |
-| `/` | Redirects to `/dashboard` | — |
+## Message Flow
+1. C# API publishes `ProcessNodeCommand` to `process-node` fanout exchange
+2. `MassTransitConsumer` receives, extracts envelope, calls `handle_process_node()`
+3. `_handle_audio_separation()` resolves model, calls `Separator.separate()` with `output_names={stem: stem, ...}`
+4. Builds `output_map: dict[str, str]` mapping stem name → relative file path
+5. Publishes `NodeCompletedEvent` with `outputArtifactPaths` dict
 
-## Auth Flow
-1. Login form → `POST /api/auth/login` → receives JWT `accessToken`
-2. Token stored in `localStorage['auth_token']`, email in `localStorage['auth_email']`
-3. Axios interceptor auto-attaches `Authorization: Bearer <token>` on all requests
-4. On app mount, AuthContext hydrates from localStorage
-5. Protected pages check `isAuthenticated` via `useAuth()` hook, redirect to `/login` if false
+## Model Registry (app/models.py)
+```python
+MODEL_STEMS = {
+    "htdemucs_ft.yaml":               ["Vocals", "Drums", "Bass", "Other"],  # default
+    "htdemucs.yaml":                  ["Vocals", "Drums", "Bass", "Other"],
+    "htdemucs_6s.yaml":               ["Vocals", "Drums", "Bass", "Other", "Guitar", "Piano"],
+    "UVR-MDX-NET-Inst_HQ_3.onnx":     ["Vocals", "Instrumental"],
+    "vocals_mel_band_roformer.ckpt":   ["Vocals", "Other"],
+}
+DEFAULT_MODEL = "htdemucs_ft.yaml"
+```
+Keys are **exact filenames** passed to `separator.load_model()` — must include extension.
+Must be kept in sync with `StemDefinitions.cs` (API) and `models.ts` (frontend).
 
-## Environment Variables
+## Configuration
 | Variable | Default | Description |
 |---|---|---|
-| `VITE_SERVICE_URL` | `http://localhost:5001` | API base URL (Docker overrides to `http://localhost:8080`) |
-| `VITE_OTEL_ENDPOINT` | `http://localhost:4318` | OpenTelemetry collector endpoint |
-
-## Docker
-- Built via multi-stage: Node build → nginx serving static files
-- Port `3000` externally
-- `VITE_SERVICE_URL` set via Docker Compose build arg
+| `RABBITMQ_HOST` | `rabbitmq` | RabbitMQ hostname |
+| `RABBITMQ_PORT` | `5672` | AMQP port |
+| `RABBITMQ_USER` | `guest` | RabbitMQ username |
+| `RABBITMQ_PASS` | `guest` | RabbitMQ password |
+| `SHARED_DATA_PATH` | `/data` | Mount point for shared audio files |

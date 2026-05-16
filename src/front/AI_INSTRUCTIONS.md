@@ -1,57 +1,87 @@
 # Fluent Audio Split — Frontend AI Instructions
 
-## Manual Setup Required
+## Overview
+React SPA for an audio stem separation app. Users build multi-node DAG workflows, execute them, and stream real-time progress. Each node runs an ML separation model and produces named stem outputs that can be piped into downstream nodes.
 
-The following setup steps must be run manually by a developer after cloning:
-
-1. Copy `.env.example` to `.env.development` and fill in values.
-2. **shadcn/ui** was configured manually (not via interactive CLI). `components.json` is committed.
-   To add new shadcn components: `npx shadcn@latest add <component-name>`
-3. **Storybook** was initialized manually. Run `npm run storybook` to start it.
+## Setup
+```bash
+cp .env.example .env.development   # set VITE_SERVICE_URL=http://localhost:8080
+npm install
+npm run dev   # → http://localhost:5173
+npm run build # production build
+```
 
 ## Tech Stack
-
 | Tool | Details |
 |---|---|
-| Framework | **React 19** + **TypeScript** via Vite |
-| Styling | **Tailwind CSS v3** |
-| UI Components | **shadcn/ui** (New York style, Violet theme) — components in `src/components/ui/` |
-| Forms | **react-hook-form** + **Zod** for validation |
-| HTTP Client | **Axios** via `src/services/apiClient.ts` |
-| Routing | **React Router v6** |
-| Server State | **TanStack Query (React Query v5)** |
-| Telemetry | **OpenTelemetry** — initialized in `src/telemetry/otel.ts` |
-| Storybook | **Storybook 10** — stories in `src/stories/`. Addons (`addon-essentials`, `addon-interactions`, `blocks`, `test`) are bundled into the core `storybook` package at v10; do **not** add them as separate dependencies. |
+| Framework | React 19 + TypeScript via Vite |
+| Styling | Tailwind CSS v3 |
+| UI Components | shadcn/ui (New York style, Violet theme) — `src/components/ui/` |
+| Forms | react-hook-form + Zod |
+| HTTP Client | Axios — `src/services/apiClient.ts` |
+| Routing | React Router v7 |
+| Server State | TanStack Query v5 |
+| SSE | `@microsoft/fetch-event-source` |
+| Telemetry | OpenTelemetry — `src/telemetry/otel.ts` |
+
+To add shadcn components: `npx shadcn@latest add <component>`
 
 ## Folder Structure
-
 ```
 src/
-  auth/           # AuthContext, authService, useAuth hook
-  components/
-    ui/           # shadcn/ui components (button, input, label, card, form)
-    nodes/        # (reserved for future flow/node components)
-  hooks/          # Custom React hooks
-  lib/            # Utilities (utils.ts with cn())
-  pages/          # Route-level page components
-  services/       # API clients (apiClient.ts)
-  stories/        # Storybook stories
-  telemetry/      # OpenTelemetry setup
-  types/          # TypeScript type definitions
+  auth/           # AuthContext, authService, useAuth
+  components/ui/  # shadcn/ui components
+  hooks/          # useExecutionStream (SSE)
+  lib/            # models.ts, utils.ts
+  pages/          # Route-level components
+  services/       # apiClient, workflowsService, executionsService, filesService
+  types/          # workflow.ts, execution.ts, file.ts, auth.ts
 ```
 
-## Environment Variables
-
-| Variable | Default | Description |
+## Pages / Routes
+| Route | Page | Purpose |
 |---|---|---|
-| `VITE_SERVICE_URL` | `http://localhost:8080` | Backend API base URL |
-| `VITE_OTEL_ENDPOINT` | `http://localhost:4318` | OpenTelemetry collector endpoint |
+| `/login` | LoginPage | JWT login |
+| `/register` | RegisterPage | Register |
+| `/dashboard` | DashboardPage | Overview |
+| `/files` | FilesPage | Upload + list audio files |
+| `/workflows/new` | NewWorkflowPage | Create workflow (name only) |
+| `/workflows/:id/canvas` | WorkflowCanvasPage | DAG canvas editor |
+| `/executions` | ExecutionsListPage | List executions |
+| `/executions/:id` | ExecutionPage | Live progress + stem results |
 
-## Scripts
+## Key Implementation Details
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Start dev server |
-| `npm run build` | Production build |
-| `npm run storybook` | Start Storybook on port 6006 |
-| `npm run build-storybook` | Build Storybook static site |
+### WorkflowCanvasPage (DAG Editor)
+- Local state: `localNodes: WorkflowNode[]` — mirrors server nodes + unsaved additions
+- New nodes created locally get `id: "new:<uuid>"` to mark them as unsaved
+- **Save logic** (`saveMutation`): nodes with `new:` prefix send `id: undefined` so the API inserts them; persisted nodes send their real UUID for update
+- `sourceNodeId` pointing to another new node is sent as `null` (can't resolve FK for unsaved parent — user must save top-down)
+- After save: `onSuccess` replaces `localNodes` with server response (real IDs replace temp IDs)
+- Node layout: `buildLevels()` groups nodes by tree depth → rendered as horizontal rows
+- Cascade delete: `getDescendantIds()` recursively collects all child IDs
+
+### models.ts (src/lib/models.ts)
+- `MODEL_DEFINITIONS`: array of `{ value, label, stems }` — model filenames incl. extension
+- `getStemsForModel(modelName)`: returns stem list for a model
+- `STEM_COLORS`: maps stem name → Tailwind bg color class
+- **Must be kept in sync** with `StemDefinitions.cs` (API) and `models.py` (worker)
+
+### useExecutionStream (src/hooks/useExecutionStream.ts)
+- Wraps SSE connection to `GET /api/executions/{id}/stream`
+- `outputPaths` field in events is `Record<string, string>` (stemName → relativePath)
+
+## TypeScript Types
+```ts
+// workflow.ts
+WorkflowNode { id, order, nodeType, configJson, sourceNodeId, sourceOutputName }
+UpdateWorkflowNodeRequest { id?, order, nodeType, configJson, sourceNodeId, sourceOutputName }
+
+// execution.ts
+NodeExecutionDto { outputArtifactPaths: Record<string, string> }
+```
+
+## Common Pitfalls
+- Always use full model filenames as `value` in MODEL_DEFINITIONS (e.g. `htdemucs_ft.yaml` not `htdemucs_ft`)
+- New nodes must not send `id` to the API — use the `new:` prefix trick and strip it at save time
+- `sourceNodeId` in new nodes should reference an already-persisted parent; if not, set to `null` and save in two steps
