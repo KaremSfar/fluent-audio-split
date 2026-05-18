@@ -43,8 +43,10 @@ services:
       - RABBITMQ_USER=guest
       - RABBITMQ_PASS=guest
       - SHARED_DATA_PATH=/data/audio
+      - AUDIO_SEPARATOR_MODEL_DIR=/models
     volumes:
       - shared-audio:/data/audio
+      - model-cache:/models
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -57,9 +59,8 @@ services:
         VITE_SERVICE_URL: http://localhost:8080
     ports:
       - "3000:80"
-    depends_on:
-      - api
 
 volumes:
   api-data:
   shared-audio:
+  model-cache:

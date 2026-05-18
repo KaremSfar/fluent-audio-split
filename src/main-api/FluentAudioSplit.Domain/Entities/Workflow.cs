@@ -8,5 +8,5 @@ public class Workflow
     public ApplicationUser User { get; set; } = null!;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-    public ICollection<WorkflowNode> Nodes { get; set; } = new List<WorkflowNode>();
+    public ICollection<WorkflowVersion> Versions { get; set; } = new List<WorkflowVersion>();
 }

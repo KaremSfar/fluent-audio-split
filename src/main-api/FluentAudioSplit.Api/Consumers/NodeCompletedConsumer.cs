@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAudioSplit.Api.Messages;
 using FluentAudioSplit.Api.Services;
 using FluentAudioSplit.Domain.Entities;
+using FluentAudioSplit.Domain.Models;
 using FluentAudioSplit.Infrastructure.Persistence;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -34,7 +35,6 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var nodeExec = await db.NodeExecutions
-            .Include(ne => ne.WorkflowNode)
             .FirstOrDefaultAsync(ne => ne.Id == msg.NodeExecutionId, ct);
 
         if (nodeExec is null)
@@ -52,13 +52,26 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
 
         await db.SaveChangesAsync(ct);
 
+        // Load the workflow version to get the node graph
+        var workflowExec = await db.WorkflowExecutions
+            .Include(we => we.WorkflowVersion)
+            .Include(we => we.NodeExecutions)
+            .FirstOrDefaultAsync(we => we.Id == msg.WorkflowExecutionId, ct);
+
+        if (workflowExec is null)
+        {
+            _logger.LogWarning("WorkflowExecution {Id} not found", msg.WorkflowExecutionId);
+            return;
+        }
+
+        var nodeDefs = JsonSerializer.Deserialize<List<WorkflowNodeDefinition>>(
+            workflowExec.WorkflowVersion.StructureJson) ?? new();
+
         // Chain downstream nodes
         var completedWorkflowNodeId = nodeExec.WorkflowNodeId;
-        var workflowId = nodeExec.WorkflowNode.WorkflowId;
-
-        var downstreamNodes = await db.WorkflowNodes
-            .Where(n => n.WorkflowId == workflowId && n.SourceNodeId == completedWorkflowNodeId)
-            .ToListAsync(ct);
+        var downstreamNodes = nodeDefs
+            .Where(n => n.SourceNodeId == completedWorkflowNodeId)
+            .ToList();
 
         var endpoint = await _sendEndpoint.GetSendEndpoint(new Uri("queue:process-node"));
 
@@ -93,30 +106,22 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
         }
 
         // Check if ALL workflow nodes have completed executions
-        var workflowExec = await db.WorkflowExecutions
-            .Include(we => we.NodeExecutions)
-            .FirstOrDefaultAsync(we => we.Id == msg.WorkflowExecutionId, ct);
+        // Reload to get freshly added node executions
+        await db.Entry(workflowExec).Collection(we => we.NodeExecutions).LoadAsync(ct);
 
-        if (workflowExec is not null)
+        var allNodeIds = nodeDefs.Select(n => n.Id).ToHashSet();
+        var completedNodeIds = workflowExec.NodeExecutions
+            .Where(ne => ne.Status == NodeExecutionStatus.Completed)
+            .Select(ne => ne.WorkflowNodeId)
+            .ToHashSet();
+
+        var allCompleted = allNodeIds.All(id => completedNodeIds.Contains(id));
+
+        if (allCompleted)
         {
-            var workflow = await db.Workflows
-                .Include(w => w.Nodes)
-                .FirstOrDefaultAsync(w => w.Id == workflowExec.WorkflowId, ct);
-
-            var allNodeIds = workflow!.Nodes.Select(n => n.Id).ToHashSet();
-            var completedNodeIds = workflowExec.NodeExecutions
-                .Where(ne => ne.Status == NodeExecutionStatus.Completed)
-                .Select(ne => ne.WorkflowNodeId)
-                .ToHashSet();
-
-            var allCompleted = allNodeIds.All(id => completedNodeIds.Contains(id));
-
-            if (allCompleted)
-            {
-                workflowExec.Status = WorkflowExecutionStatus.Completed;
-                workflowExec.CompletedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync(ct);
-            }
+            workflowExec.Status = WorkflowExecutionStatus.Completed;
+            workflowExec.CompletedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
         }
 
         await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
@@ -126,7 +131,7 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
             outputArtifactPaths = msg.OutputArtifactPaths
         });
 
-        if (workflowExec?.Status == WorkflowExecutionStatus.Completed)
+        if (workflowExec.Status == WorkflowExecutionStatus.Completed)
         {
             await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
             {

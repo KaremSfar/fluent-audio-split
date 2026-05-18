@@ -16,3 +16,5 @@ BROKER_URL = (
 RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "rpc://")
 
 SHARED_DATA_PATH = os.getenv("SHARED_DATA_PATH", "/data")
+
+MODEL_FILE_DIR = os.getenv("AUDIO_SEPARATOR_MODEL_DIR", "/models")

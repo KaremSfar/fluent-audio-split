@@ -1,16 +1,38 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  addEdge,
+  applyNodeChanges,
+  applyEdgeChanges,
+  type Node,
+  type Edge,
+  type Connection,
+  type OnNodesChange,
+  type OnEdgesChange,
+  type OnConnect,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import dagre from '@dagrejs/dagre';
 import { useAuth } from '@/auth/useAuth';
 import { workflowsService } from '@/services/workflowsService';
 import { executionsService } from '@/services/executionsService';
 import { filesService } from '@/services/filesService';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { MODEL_DEFINITIONS, getStemsForModel, STEM_COLORS } from '@/lib/models';
+import AudioSeparationNode, {
+  NodeCallbacksContext,
+  type AudioSeparationNodeData,
+} from '@/components/AudioSeparationNode';
 import type { WorkflowNode } from '@/types/workflow';
 import type { FileRecord } from '@/types/file';
+
+// ── React Flow node types registry ────────────────────────────────────────────
+const nodeTypes = { audioSeparation: AudioSeparationNode };
 
 // ── Execute Dialog ─────────────────────────────────────────────────────────────
 function ExecuteDialog({
@@ -55,7 +77,6 @@ function ExecuteDialog({
               </select>
             )}
           </div>
-
           <div className="flex gap-2 justify-end">
             <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
             <Button
@@ -71,146 +92,76 @@ function ExecuteDialog({
   );
 }
 
-// ── Node Card ─────────────────────────────────────────────────────────────────
-function AudioSeparationNodeCard({
-  node,
-  index,
-  nodes,
-  onChange,
-  onAddChild,
-  onRemove,
-}: {
-  node: WorkflowNode;
-  index: number;
-  nodes: WorkflowNode[];
-  onChange: (nodeId: string, configJson: string) => void;
-  onAddChild: (parentNodeId: string, stemName: string) => void;
-  onRemove: (nodeId: string) => void;
-}) {
-  const config = (() => { try { return JSON.parse(node.configJson); } catch { return {}; } })();
-  const modelName: string = config.modelName ?? 'htdemucs_ft.yaml';
-  const stems = getStemsForModel(modelName);
-  const isRoot = node.sourceNodeId === null;
+// ── Dagre layout (left → right) ───────────────────────────────────────────────
+const NODE_WIDTH = 288; // w-72
+const NODE_HEIGHT = 220; // approximate card height
 
-  const parentNode = node.sourceNodeId
-    ? nodes.find((n) => n.id === node.sourceNodeId)
-    : null;
-  const parentConfig = parentNode
-    ? (() => { try { return JSON.parse(parentNode.configJson); } catch { return {}; } })()
-    : null;
+function layoutWithDagre(rfNodes: Node[], rfEdges: Edge[]): Node[] {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 100 });
 
-  return (
-    <div className="w-80 rounded-xl border-2 border-violet-400 bg-background shadow-lg">
-      {/* Header */}
-      <div className="bg-violet-500 text-white rounded-t-xl px-4 py-2 flex items-center gap-2">
-        <span className="text-lg">🎛️</span>
-        <span className="font-semibold text-sm">Audio Separation</span>
-        <Badge variant="secondary" className="ml-auto text-xs bg-violet-300 text-violet-900">
-          Node {index + 1}
-        </Badge>
-        {!isRoot && (
-          <button
-            onClick={() => onRemove(node.id)}
-            className="ml-1 text-violet-200 hover:text-white text-xs"
-            title="Remove node"
-          >
-            ✕
-          </button>
-        )}
-      </div>
+  rfNodes.forEach((n) => g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
+  rfEdges.forEach((e) => g.setEdge(e.source, e.target));
+  dagre.layout(g);
 
-      {/* Input indicator */}
-      <div className="px-4 pt-3 pb-1">
-        <div className="text-xs text-muted-foreground flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
-          {isRoot
-            ? 'Input: uploaded audio file'
-            : (
-              <span>
-                Input: <span className="font-medium text-violet-600">{node.sourceOutputName}</span>
-                {' '}from Node {(nodes.findIndex(n => n.id === node.sourceNodeId) + 1)}
-                {parentConfig?.modelName ? ` (${parentConfig.modelName})` : ''}
-              </span>
-            )
-          }
-        </div>
-      </div>
-
-      {/* Model selector */}
-      <div className="px-4 py-3 space-y-3">
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            Model
-          </label>
-          <select
-            value={modelName}
-            onChange={(e) => onChange(node.id, JSON.stringify({ ...config, modelName: e.target.value }))}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            {MODEL_DEFINITIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Output stems */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            Output Stems
-          </label>
-          <div className="flex flex-wrap gap-1.5">
-            {stems.map((stem) => {
-              const color = STEM_COLORS[stem] ?? 'bg-slate-400';
-              const hasChild = nodes.some(
-                (n) => n.sourceNodeId === node.id && n.sourceOutputName === stem
-              );
-              return (
-                <button
-                  key={stem}
-                  onClick={() => !hasChild && onAddChild(node.id, stem)}
-                  disabled={hasChild}
-                  title={hasChild ? `${stem} already connected` : `Add node from ${stem}`}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border transition-all
-                    ${hasChild
-                      ? 'opacity-50 cursor-not-allowed border-transparent bg-muted text-muted-foreground'
-                      : 'cursor-pointer hover:scale-105 border-transparent text-white ' + color
-                    }`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-white/70" />
-                  {stem}
-                  {!hasChild && <span className="ml-0.5 opacity-70">+</span>}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-[10px] text-muted-foreground">Click a stem to add a downstream node</p>
-        </div>
-      </div>
-    </div>
-  );
+  return rfNodes.map((n) => {
+    const pos = g.node(n.id);
+    return { ...n, position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 } };
+  });
 }
 
-// ── Helper: get all descendant node IDs (for cascade delete) ──────────────────
-function getDescendantIds(nodeId: string, nodes: WorkflowNode[]): string[] {
-  const children = nodes.filter((n) => n.sourceNodeId === nodeId);
-  return children.flatMap((c) => [c.id, ...getDescendantIds(c.id, nodes)]);
+// ── Convert WorkflowNode[] → RF nodes + edges ─────────────────────────────────
+function toRF(workflowNodes: WorkflowNode[]): { rfNodes: Node[]; rfEdges: Edge[] } {
+  const rfNodes: Node[] = workflowNodes.map((n, idx) => {
+    const data: AudioSeparationNodeData = {
+      nodeId: n.id,
+      configJson: n.configJson,
+      isRoot: n.sourceNodeId === null,
+      nodeIndex: idx,
+    };
+
+    return {
+      id: n.id,
+      type: 'audioSeparation',
+      position: { x: 0, y: 0 }, // overwritten by dagre
+      data: data as unknown as Record<string, unknown>,
+    };
+  });
+
+  const rfEdges: Edge[] = workflowNodes
+    .filter((n) => n.sourceNodeId && n.sourceOutputName)
+    .map((n) => ({
+      id: `e-${n.sourceNodeId}-${n.sourceOutputName}-${n.id}`,
+      source: n.sourceNodeId!,
+      target: n.id,
+      sourceHandle: n.sourceOutputName!,
+      targetHandle: 'input',
+      style: { stroke: '#8b5cf6', strokeWidth: 2 },
+    }));
+
+  const laid = layoutWithDagre(rfNodes, rfEdges);
+  return { rfNodes: laid, rfEdges };
 }
 
-// ── Helper: build tree levels for layout ──────────────────────────────────────
-function buildLevels(nodes: WorkflowNode[]): WorkflowNode[][] {
-  if (nodes.length === 0) return [];
-  const roots = nodes.filter((n) => n.sourceNodeId === null);
-  if (roots.length === 0) return [nodes];
-  const levels: WorkflowNode[][] = [];
-  const placed = new Set(roots.map((n) => n.id));
-  levels.push(roots);
-  while (true) {
-    const next = nodes.filter((n) => n.sourceNodeId !== null && placed.has(n.sourceNodeId) && !placed.has(n.id));
-    if (next.length === 0) break;
-    next.forEach((n) => placed.add(n.id));
-    levels.push(next);
-  }
-  return levels;
+// ── Convert RF state back → WorkflowNode[] (for save) ─────────────────────────
+function fromRF(rfNodes: Node[], rfEdges: Edge[], original: WorkflowNode[]): WorkflowNode[] {
+  const edgesByTarget = new Map<string, Edge>();
+  rfEdges.forEach((e) => edgesByTarget.set(e.target, e));
+
+  return rfNodes.map((rfn, idx) => {
+    const orig = original.find((o) => o.id === rfn.id);
+    const data = rfn.data as unknown as AudioSeparationNodeData;
+    const inEdge = edgesByTarget.get(rfn.id);
+    return {
+      id: rfn.id,
+      order: idx,
+      nodeType: orig?.nodeType ?? 'AudioSeparation',
+      configJson: data.configJson as unknown as string,
+      sourceNodeId: inEdge ? inEdge.source : null,
+      sourceOutputName: inEdge ? (inEdge.sourceHandle ?? null) : null,
+    };
+  });
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -221,8 +172,14 @@ export default function WorkflowCanvasPage() {
   const queryClient = useQueryClient();
 
   const [showExecuteDialog, setShowExecuteDialog] = useState(false);
-  const [localNodes, setLocalNodes] = useState<WorkflowNode[] | null>(null);
   const [saved, setSaved] = useState(true);
+
+  // React Flow state
+  const [rfNodes, setRfNodes] = useState<Node[]>([]);
+  const [rfEdges, setRfEdges] = useState<Edge[]>([]);
+
+  // Keep a ref to original WorkflowNode[] so we can read nodeType on save
+  const originalNodesRef = useRef<WorkflowNode[]>([]);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) navigate('/login');
@@ -240,32 +197,116 @@ export default function WorkflowCanvasPage() {
     enabled: isAuthenticated,
   });
 
-  // Seed local nodes once workflow loads
+  const handleConfigChange = useCallback((nodeId: string, configJson: string) => {
+    setRfNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? { ...n, data: { ...(n.data as object), configJson } }
+          : n,
+      ),
+    );
+    setSaved(false);
+  }, []);
+
+  const handleRemoveNode = useCallback((nodeId: string) => {
+    // Collect node + all descendants using the current edges snapshot
+    const getDescendants = (startId: string, edges: Edge[]): Set<string> => {
+      const result = new Set<string>();
+      const queue = [startId];
+      while (queue.length) {
+        const cur = queue.shift()!;
+        result.add(cur);
+        edges.filter((e: Edge) => e.source === cur).forEach((e: Edge) => queue.push(e.target));
+      }
+      return result;
+    };
+
+    const descendants = getDescendants(nodeId, rfEdgesRef.current);
+    setRfNodes((prev) => prev.filter((n) => !descendants.has(n.id)));
+    setRfEdges((prev) => prev.filter((e: Edge) => !descendants.has(e.source) && !descendants.has(e.target)));
+    setSaved(false);
+  }, []);
+
+  // Keep a ref to current edges so handleRemoveNode can read them
+  const rfEdgesRef = useRef<Edge[]>([]);
+  useEffect(() => { rfEdgesRef.current = rfEdges; }, [rfEdges]);
+
+  // Seed RF state once workflow loads
   useEffect(() => {
-    if (workflow && localNodes === null) {
-      setLocalNodes(workflow.nodes.map((n) => ({
-        ...n,
-        sourceNodeId: n.sourceNodeId ?? null,
-        sourceOutputName: n.sourceOutputName ?? null,
-      })));
+    if (workflow && rfNodes.length === 0) {
+      originalNodesRef.current = workflow.nodes;
+      const { rfNodes: n, rfEdges: e } = toRF(workflow.nodes);
+      setRfNodes(n);
+      setRfEdges(e);
     }
-  }, [workflow, localNodes]);
+  }, [workflow, rfNodes.length]);
+
+  const onNodesChange: OnNodesChange = useCallback(
+    (changes) => setRfNodes((nds) => applyNodeChanges(changes, nds)),
+    [],
+  );
+  const onEdgesChange: OnEdgesChange = useCallback(
+    (changes) => {
+      setRfEdges((eds) => applyEdgeChanges(changes, eds));
+      setSaved(false);
+    },
+    [],
+  );
+  const onConnect: OnConnect = useCallback(
+    (connection: Connection) => {
+      setRfEdges((eds) => {
+        // Remove any existing edge to the same target handle, then add new one
+        const filtered = eds.filter(
+          (e) => !(e.target === connection.target && e.targetHandle === connection.targetHandle),
+        );
+        const newEdge: Edge = {
+          ...connection,
+          id: `e-${connection.source}-${connection.sourceHandle}-${connection.target}`,
+          style: { stroke: '#8b5cf6', strokeWidth: 2 },
+        };
+        return addEdge(newEdge, filtered);
+      });
+      // Mark target node as non-root once it has an incoming connection
+      setRfNodes((nds) =>
+        nds.map((n) =>
+          n.id === connection.target ? { ...n, data: { ...n.data, isRoot: false } } : n,
+        ),
+      );
+      setSaved(false);
+    },
+    [],
+  );
+
+  const handleAddNode = useCallback(() => {
+    const newId = `new:${crypto.randomUUID()}`;
+    const data: AudioSeparationNodeData = {
+      nodeId: newId,
+      configJson: JSON.stringify({ modelName: 'htdemucs_ft.yaml' }),
+      isRoot: true,
+      nodeIndex: rfNodes.length,
+    };
+    const maxX = rfNodes.length > 0 ? Math.max(...rfNodes.map((n) => n.position.x)) : -420;
+    const newNode: Node = {
+      id: newId,
+      type: 'audioSeparation',
+      position: { x: maxX + 420, y: 80 },
+      data: data as unknown as Record<string, unknown>,
+    };
+    setRfNodes((prev) => [...prev, newNode]);
+    setSaved(false);
+  }, [rfNodes]);
 
   const saveMutation = useMutation({
     mutationFn: () => {
-      const nodes = localNodes ?? [];
+      const workflowNodes = fromRF(rfNodes, rfEdges, originalNodesRef.current);
       const isNew = (nodeId: string) => nodeId.startsWith('new:');
       return workflowsService.update(id!, {
         name: workflow!.name,
-        nodes: nodes.map((n, i) => ({
+        nodes: workflowNodes.map((n, i) => ({
           id: isNew(n.id) ? undefined : n.id,
           order: i,
           nodeType: n.nodeType,
           configJson: n.configJson,
-          // If the parent node is also new (not yet persisted), don't send the FK —
-          // the user will need to save twice for multi-level new additions. For single
-          // new-node additions (the common case), sourceNodeId always points to a
-          // persisted parent so this is fine.
           sourceNodeId: n.sourceNodeId && isNew(n.sourceNodeId) ? null : n.sourceNodeId,
           sourceOutputName: n.sourceOutputName,
         })),
@@ -273,11 +314,10 @@ export default function WorkflowCanvasPage() {
     },
     onSuccess: (updated) => {
       queryClient.setQueryData(['workflow', id], updated);
-      setLocalNodes(updated.nodes.map((n) => ({
-        ...n,
-        sourceNodeId: n.sourceNodeId ?? null,
-        sourceOutputName: n.sourceOutputName ?? null,
-      })));
+      originalNodesRef.current = updated.nodes;
+      const { rfNodes: n, rfEdges: e } = toRF(updated.nodes);
+      setRfNodes(n);
+      setRfEdges(e);
       setSaved(true);
     },
   });
@@ -290,45 +330,23 @@ export default function WorkflowCanvasPage() {
     onSuccess: (execution) => navigate(`/executions/${execution.id}`),
   });
 
-  const handleNodeChange = (nodeId: string, configJson: string) => {
-    setLocalNodes((prev) =>
-      (prev ?? []).map((n) => (n.id === nodeId ? { ...n, configJson } : n))
-    );
-    setSaved(false);
-  };
-
-  const handleAddChild = (parentNodeId: string, stemName: string) => {
-    const newNode: WorkflowNode = {
-      id: `new:${crypto.randomUUID()}`,
-      order: (localNodes ?? []).length,
-      nodeType: 'AudioSeparation',
-      configJson: JSON.stringify({ modelName: 'htdemucs_ft.yaml' }),
-      sourceNodeId: parentNodeId || null,
-      sourceOutputName: stemName || null,
-    };
-    setLocalNodes((prev) => [...(prev ?? []), newNode]);
-    setSaved(false);
-  };
-
-  const handleRemoveNode = (nodeId: string) => {
-    const toRemove = new Set([nodeId, ...getDescendantIds(nodeId, localNodes ?? [])]);
-    setLocalNodes((prev) => (prev ?? []).filter((n) => !toRemove.has(n.id)));
-    setSaved(false);
-  };
-
   if (authLoading || isLoading || !workflow) {
-    return <div className="min-h-screen flex items-center justify-center"><p className="text-muted-foreground">Loading…</p></div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">Loading…</p>
+      </div>
+    );
   }
 
-  const nodes = localNodes ?? workflow.nodes;
-  const levels = buildLevels(nodes);
-
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-screen bg-background flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="border-b">
+      <header className="border-b shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-4">
-          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 hover:opacity-80 shrink-0">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="flex items-center gap-2 hover:opacity-80 shrink-0"
+          >
             <span className="text-xl">🎵</span>
             <span className="font-semibold hidden sm:block">Fluent Audio Split</span>
           </button>
@@ -338,6 +356,13 @@ export default function WorkflowCanvasPage() {
             <span className="text-xs text-amber-600 font-medium shrink-0">● Unsaved</span>
           )}
           <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAddNode}
+            >
+              + Add Node
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -357,92 +382,43 @@ export default function WorkflowCanvasPage() {
       </header>
 
       {/* Canvas */}
-      <main className="flex-1 relative overflow-auto">
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            backgroundImage: 'radial-gradient(circle, #d1d5db 1px, transparent 1px)',
-            backgroundSize: '28px 28px',
-          }}
-        />
-        <div className="relative flex flex-col items-center gap-0 py-12 min-h-full">
-          {/* IN node */}
-          <div className="flex flex-col items-center gap-2 z-10">
-            <div className="w-12 h-12 rounded-full bg-slate-200 border-2 border-slate-400 flex items-center justify-center text-xs font-bold text-slate-600 shadow">
-              IN
-            </div>
-            <span className="text-xs text-muted-foreground font-medium">Audio Input</span>
+      <main className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }}>
+        <NodeCallbacksContext.Provider value={{ onConfigChange: handleConfigChange, onRemove: handleRemoveNode }}>
+          <div style={{ position: 'absolute', inset: 0 }}>
+          <ReactFlow
+            nodes={rfNodes}
+            edges={rfEdges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+            defaultEdgeOptions={{ style: { stroke: '#8b5cf6', strokeWidth: 2 } }}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color="#d1d5db" gap={28} size={1} />
+            <Controls />
+            <MiniMap nodeColor="#8b5cf6" maskColor="rgba(0,0,0,0.05)" />
+          </ReactFlow>
           </div>
+        </NodeCallbacksContext.Provider>
 
-          {/* Connector from IN to first level */}
-          {levels.length > 0 && <div className="w-px h-8 bg-slate-300" />}
-
-          {/* Node levels */}
-          {levels.map((level, levelIdx) => (
-            <div key={levelIdx} className="flex flex-col items-center w-full z-10">
-              <div className="flex flex-row items-start justify-center gap-8 px-8 flex-wrap">
-                {level.map((node) => (
-                  <div key={node.id} className="flex flex-col items-center gap-0">
-                    {node.sourceNodeId && (
-                      <div className="flex flex-col items-center">
-                        <div className="w-px h-6 bg-violet-300" />
-                        <div className="text-[9px] text-violet-500 font-medium px-1.5 py-0.5 bg-violet-50 border border-violet-200 rounded-full mb-1">
-                          ↓ {node.sourceOutputName}
-                        </div>
-                      </div>
-                    )}
-                    <AudioSeparationNodeCard
-                      node={node}
-                      index={nodes.indexOf(node)}
-                      nodes={nodes}
-                      onChange={handleNodeChange}
-                      onAddChild={handleAddChild}
-                      onRemove={handleRemoveNode}
-                    />
-                    {levelIdx < levels.length - 1 && nodes.some((n) => n.sourceNodeId === node.id) && (
-                      <div className="w-px h-6 bg-slate-300" />
-                    )}
-                  </div>
-                ))}
-              </div>
-              {levelIdx < levels.length - 1 && <div className="h-2" />}
-            </div>
-          ))}
-
-          {/* Connector to OUT */}
-          <div className="w-px h-8 bg-slate-300" />
-
-          {/* OUT node */}
-          <div className="flex flex-col items-center gap-2 z-10">
-            <div className="w-12 h-12 rounded-full bg-violet-100 border-2 border-violet-400 flex items-center justify-center text-xs font-bold text-violet-600 shadow">
-              OUT
-            </div>
-            <span className="text-xs text-muted-foreground font-medium">Stems Output</span>
-          </div>
-
-          {/* Empty state */}
-          {nodes.length === 0 && (
-            <div className="mt-8 text-center text-muted-foreground">
-              <p className="text-sm">No nodes yet.</p>
-              <p className="text-xs mt-1">Add an AudioSeparation node to get started.</p>
-              <Button
-                className="mt-4"
-                size="sm"
-                onClick={() => handleAddChild('', '')}
-              >
-                + Add Root Node
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {/* Save error */}
-        {saveMutation.isError && (
-          <div className="fixed bottom-4 right-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-red-700 text-sm shadow-md z-50">
-            Save failed: {(saveMutation.error as Error).message}
+        {/* Empty state overlay */}
+        {rfNodes.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <p className="text-sm text-muted-foreground">No nodes yet.</p>
+            <p className="text-xs mt-1 text-muted-foreground">Click "+ Add Node" in the header to get started.</p>
           </div>
         )}
       </main>
+
+      {/* Save error */}
+      {saveMutation.isError && (
+        <div className="fixed bottom-4 right-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-red-700 text-sm shadow-md z-50">
+          Save failed: {(saveMutation.error as Error).message}
+        </div>
+      )}
 
       {/* Execute Dialog */}
       {showExecuteDialog && (

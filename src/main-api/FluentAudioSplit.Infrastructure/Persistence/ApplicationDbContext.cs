@@ -11,7 +11,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
 
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<FileRecord> FileRecords => Set<FileRecord>();
-    public DbSet<WorkflowNode> WorkflowNodes => Set<WorkflowNode>();
+    public DbSet<WorkflowVersion> WorkflowVersions => Set<WorkflowVersion>();
     public DbSet<WorkflowExecution> WorkflowExecutions => Set<WorkflowExecution>();
     public DbSet<NodeExecution> NodeExecutions => Set<NodeExecution>();
 
@@ -26,10 +26,15 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
              .WithMany()
              .HasForeignKey(w => w.UserId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasMany(w => w.Nodes)
-             .WithOne(n => n.Workflow)
-             .HasForeignKey(n => n.WorkflowId)
+            e.HasMany(w => w.Versions)
+             .WithOne(v => v.Workflow)
+             .HasForeignKey(v => v.WorkflowId)
              .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<WorkflowVersion>(e =>
+        {
+            e.HasKey(v => v.Id);
         });
 
         builder.Entity<FileRecord>(e =>
@@ -44,9 +49,9 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<WorkflowExecution>(e =>
         {
             e.HasKey(we => we.Id);
-            e.HasOne(we => we.Workflow)
+            e.HasOne(we => we.WorkflowVersion)
              .WithMany()
-             .HasForeignKey(we => we.WorkflowId)
+             .HasForeignKey(we => we.WorkflowVersionId)
              .OnDelete(DeleteBehavior.Restrict);
             e.HasOne(we => we.User)
              .WithMany()
@@ -62,21 +67,9 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
              .OnDelete(DeleteBehavior.Cascade);
         });
 
-        builder.Entity<WorkflowNode>(e =>
-        {
-            e.HasOne(n => n.SourceNode)
-             .WithMany()
-             .HasForeignKey(n => n.SourceNodeId)
-             .OnDelete(DeleteBehavior.SetNull);
-        });
-
         builder.Entity<NodeExecution>(e =>
         {
             e.HasKey(ne => ne.Id);
-            e.HasOne(ne => ne.WorkflowNode)
-             .WithMany()
-             .HasForeignKey(ne => ne.WorkflowNodeId)
-             .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

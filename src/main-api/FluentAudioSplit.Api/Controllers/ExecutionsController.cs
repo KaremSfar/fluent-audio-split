@@ -5,6 +5,7 @@ using FluentAudioSplit.Api.Dtos;
 using FluentAudioSplit.Api.Messages;
 using FluentAudioSplit.Api.Services;
 using FluentAudioSplit.Domain.Entities;
+using FluentAudioSplit.Domain.Models;
 using FluentAudioSplit.Infrastructure.Persistence;
 using MassTransit;
 using Microsoft.AspNetCore.Authorization;
@@ -43,7 +44,8 @@ public class ExecutionsController : ControllerBase
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var executions = await db.WorkflowExecutions
-            .Include(we => we.Workflow)
+            .Include(we => we.WorkflowVersion)
+                .ThenInclude(v => v.Workflow)
             .Include(we => we.InputFileRecord)
             .Include(we => we.NodeExecutions)
             .Where(we => we.UserId == userId)
@@ -60,7 +62,8 @@ public class ExecutionsController : ControllerBase
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var execution = await db.WorkflowExecutions
-            .Include(we => we.Workflow)
+            .Include(we => we.WorkflowVersion)
+                .ThenInclude(v => v.Workflow)
             .Include(we => we.InputFileRecord)
             .Include(we => we.NodeExecutions)
             .FirstOrDefaultAsync(we => we.Id == id && we.UserId == userId, ct);
@@ -93,6 +96,7 @@ public class ExecutionsController : ControllerBase
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var execution = await db.WorkflowExecutions
+            .Include(we => we.WorkflowVersion)
             .FirstOrDefaultAsync(we => we.Id == id && we.UserId == userId, ct);
         if (execution is null) return NotFound("Execution not found.");
 
@@ -101,6 +105,9 @@ public class ExecutionsController : ControllerBase
         if (failedNode is null) return NotFound("Node execution not found.");
         if (failedNode.Status != NodeExecutionStatus.Failed)
             return BadRequest("Node execution is not in Failed state.");
+
+        var nodeDefs = DeserializeNodes(execution.WorkflowVersion.StructureJson);
+        var nodeDef = nodeDefs.FirstOrDefault(n => n.Id == failedNode.WorkflowNodeId);
 
         var newNodeExec = new NodeExecution
         {
@@ -116,16 +123,15 @@ public class ExecutionsController : ControllerBase
         execution.Status = WorkflowExecutionStatus.Running;
         await db.SaveChangesAsync(ct);
 
-        var workflowNode = await db.WorkflowNodes.FindAsync(new object[] { failedNode.WorkflowNodeId }, ct);
         var endpoint = await _sendEndpoint.GetSendEndpoint(new Uri("queue:process-node"));
         await endpoint.Send(new ProcessNodeCommand
         {
             WorkflowExecutionId = id,
             NodeExecutionId = newNodeExec.Id,
-            NodeType = workflowNode?.NodeType ?? string.Empty,
+            NodeType = nodeDef?.NodeType ?? string.Empty,
             InputArtifactPath = newNodeExec.InputArtifactPath ?? string.Empty,
             OutputArtifactDir = newNodeExec.OutputArtifactDir ?? string.Empty,
-            ConfigJson = workflowNode?.ConfigJson ?? "{}"
+            ConfigJson = nodeDef?.ConfigJson ?? "{}"
         }, ct);
 
         return Ok(NodeExecToDto(newNodeExec));
@@ -152,10 +158,13 @@ public class ExecutionsController : ControllerBase
         return Ok(paths);
     }
 
+    private static List<WorkflowNodeDefinition> DeserializeNodes(string json) =>
+        JsonSerializer.Deserialize<List<WorkflowNodeDefinition>>(json) ?? new();
+
     private static WorkflowExecutionDto ToDto(WorkflowExecution we) => new(
         we.Id,
         we.WorkflowId,
-        we.Workflow?.Name ?? string.Empty,
+        we.WorkflowVersion?.Workflow?.Name ?? string.Empty,
         we.InputFileRecord is not null
             ? new FileRecordDto(we.InputFileRecord.Id, we.InputFileRecord.OriginalFileName, we.InputFileRecord.ContentType, we.InputFileRecord.SizeBytes, we.InputFileRecord.CreatedAt)
             : new FileRecordDto(we.InputFileRecordId, string.Empty, string.Empty, 0, DateTime.MinValue),

@@ -4,7 +4,8 @@ public class WorkflowExecution
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid WorkflowId { get; set; }
-    public Workflow Workflow { get; set; } = null!;
+    public Guid WorkflowVersionId { get; set; }
+    public WorkflowVersion WorkflowVersion { get; set; } = null!;
     public string UserId { get; set; } = string.Empty;
     public ApplicationUser User { get; set; } = null!;
     public Guid InputFileRecordId { get; set; }

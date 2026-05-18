@@ -4,6 +4,7 @@ using FluentAudioSplit.Api.Dtos;
 using FluentAudioSplit.Api.Messages;
 using FluentAudioSplit.Api.Services;
 using FluentAudioSplit.Domain.Entities;
+using FluentAudioSplit.Domain.Models;
 using FluentAudioSplit.Infrastructure.Persistence;
 using MassTransit;
 using Microsoft.AspNetCore.Authorization;
@@ -35,25 +36,36 @@ public class WorkflowsController : ControllerBase
     public async Task<ActionResult<WorkflowDto>> Create([FromBody] CreateWorkflowRequest request, CancellationToken ct)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+        var nodeDefs = request.Nodes.Select(n => new WorkflowNodeDefinition
+        {
+            Order = n.Order,
+            NodeType = n.NodeType,
+            ConfigJson = n.ConfigJson,
+            SourceNodeId = n.SourceNodeId,
+            SourceOutputName = n.SourceOutputName
+        }).ToList();
+
         var workflow = new Workflow
         {
             Name = request.Name,
             UserId = userId,
-            Nodes = request.Nodes.Select(n => new WorkflowNode
-            {
-                Order = n.Order,
-                NodeType = n.NodeType,
-                ConfigJson = n.ConfigJson,
-                SourceNodeId = n.SourceNodeId,
-                SourceOutputName = n.SourceOutputName
-            }).ToList()
         };
+
+        var version = new WorkflowVersion
+        {
+            WorkflowId = workflow.Id,
+            VersionNumber = 1,
+            StructureJson = JsonSerializer.Serialize(nodeDefs),
+        };
+
+        workflow.Versions.Add(version);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         db.Workflows.Add(workflow);
         await db.SaveChangesAsync(ct);
 
-        return CreatedAtAction(nameof(GetById), new { id = workflow.Id }, ToDto(workflow));
+        return CreatedAtAction(nameof(GetById), new { id = workflow.Id }, ToDto(workflow, version, nodeDefs));
     }
 
     [HttpGet]
@@ -63,12 +75,17 @@ public class WorkflowsController : ControllerBase
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var workflows = await db.Workflows
-            .Include(w => w.Nodes)
+            .Include(w => w.Versions)
             .Where(w => w.UserId == userId)
             .OrderByDescending(w => w.CreatedAt)
             .ToListAsync(ct);
 
-        return Ok(workflows.Select(ToDto).ToList());
+        return Ok(workflows.Select(w =>
+        {
+            var latest = w.Versions.OrderByDescending(v => v.VersionNumber).First();
+            var nodes = DeserializeNodes(latest.StructureJson);
+            return ToDto(w, latest, nodes);
+        }).ToList());
     }
 
     [HttpGet("{id:guid}")]
@@ -78,11 +95,14 @@ public class WorkflowsController : ControllerBase
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var workflow = await db.Workflows
-            .Include(w => w.Nodes)
+            .Include(w => w.Versions)
             .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId, ct);
 
         if (workflow is null) return NotFound();
-        return Ok(ToDto(workflow));
+
+        var latest = workflow.Versions.OrderByDescending(v => v.VersionNumber).First();
+        var nodes = DeserializeNodes(latest.StructureJson);
+        return Ok(ToDto(workflow, latest, nodes));
     }
 
     [HttpPatch("{id:guid}")]
@@ -92,66 +112,37 @@ public class WorkflowsController : ControllerBase
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var workflow = await db.Workflows
+            .Include(w => w.Versions)
             .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId, ct);
 
         if (workflow is null) return NotFound();
 
-        // Update workflow header directly (bypasses EF tracking on nodes)
-        await db.Workflows
-            .Where(w => w.Id == id)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(w => w.Name, request.Name)
-                .SetProperty(w => w.UpdatedAt, DateTime.UtcNow), ct);
+        workflow.Name = request.Name;
+        workflow.UpdatedAt = DateTime.UtcNow;
 
-        var incomingIds = request.Nodes
-            .Where(n => n.Id.HasValue)
-            .Select(n => n.Id!.Value)
-            .ToList();
+        var maxVersion = workflow.Versions.Max(v => v.VersionNumber);
 
-        // Delete nodes no longer in the request (skip nodes that have executions — Restrict FK)
-        await db.WorkflowNodes
-            .Where(n => n.WorkflowId == id && !incomingIds.Contains(n.Id))
-            .ExecuteDeleteAsync(ct);
-
-        // Update existing nodes directly
-        foreach (var nodeReq in request.Nodes.Where(n => n.Id.HasValue))
+        var nodeDefs = request.Nodes.Select(n => new WorkflowNodeDefinition
         {
-            await db.WorkflowNodes
-                .Where(n => n.Id == nodeReq.Id!.Value)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(n => n.Order, nodeReq.Order)
-                    .SetProperty(n => n.NodeType, nodeReq.NodeType)
-                    .SetProperty(n => n.ConfigJson, nodeReq.ConfigJson)
-                    .SetProperty(n => n.SourceNodeId, nodeReq.SourceNodeId)
-                    .SetProperty(n => n.SourceOutputName, nodeReq.SourceOutputName), ct);
-        }
+            Id = n.Id ?? Guid.NewGuid(),
+            Order = n.Order,
+            NodeType = n.NodeType,
+            ConfigJson = n.ConfigJson,
+            SourceNodeId = n.SourceNodeId,
+            SourceOutputName = n.SourceOutputName
+        }).ToList();
 
-        // Insert new nodes
-        var newNodes = request.Nodes
-            .Where(n => !n.Id.HasValue)
-            .Select(n => new WorkflowNode
-            {
-                WorkflowId = id,
-                Order = n.Order,
-                NodeType = n.NodeType,
-                ConfigJson = n.ConfigJson,
-                SourceNodeId = n.SourceNodeId,
-                SourceOutputName = n.SourceOutputName,
-            })
-            .ToList();
-
-        if (newNodes.Count > 0)
+        var newVersion = new WorkflowVersion
         {
-            db.WorkflowNodes.AddRange(newNodes);
-            await db.SaveChangesAsync(ct);
-        }
+            WorkflowId = id,
+            VersionNumber = maxVersion + 1,
+            StructureJson = JsonSerializer.Serialize(nodeDefs),
+        };
 
-        // Reload the full workflow to return the updated state
-        var updated = await db.Workflows
-            .Include(w => w.Nodes)
-            .FirstAsync(w => w.Id == id, ct);
+        db.WorkflowVersions.Add(newVersion);
+        await db.SaveChangesAsync(ct);
 
-        return Ok(ToDto(updated));
+        return Ok(ToDto(workflow, newVersion, nodeDefs));
     }
 
     [HttpDelete("{id:guid}")]
@@ -179,10 +170,13 @@ public class WorkflowsController : ControllerBase
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var workflow = await db.Workflows
-            .Include(w => w.Nodes.OrderBy(n => n.Order))
+            .Include(w => w.Versions)
             .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId, ct);
 
         if (workflow is null) return NotFound("Workflow not found.");
+
+        var latestVersion = workflow.Versions.OrderByDescending(v => v.VersionNumber).First();
+        var nodeDefs = DeserializeNodes(latestVersion.StructureJson);
 
         var fileRecord = await db.FileRecords
             .FirstOrDefaultAsync(f => f.Id == request.FileId && f.UserId == userId, ct);
@@ -192,6 +186,7 @@ public class WorkflowsController : ControllerBase
         var execution = new WorkflowExecution
         {
             WorkflowId = workflow.Id,
+            WorkflowVersionId = latestVersion.Id,
             UserId = userId,
             InputFileRecordId = fileRecord.Id,
             Status = WorkflowExecutionStatus.Pending
@@ -199,7 +194,7 @@ public class WorkflowsController : ControllerBase
 
         db.WorkflowExecutions.Add(execution);
 
-        var rootNodes = workflow.Nodes.Where(n => n.SourceNodeId == null).ToList();
+        var rootNodes = nodeDefs.Where(n => n.SourceNodeId == null).ToList();
         var nodeExecs = new List<NodeExecution>();
 
         foreach (var rootNode in rootNodes)
@@ -221,15 +216,15 @@ public class WorkflowsController : ControllerBase
         var endpoint = await _sendEndpoint.GetSendEndpoint(new Uri("queue:process-node"));
         foreach (var nodeExec in nodeExecs)
         {
-            var workflowNode = rootNodes.First(n => n.Id == nodeExec.WorkflowNodeId);
+            var nodeDef = rootNodes.First(n => n.Id == nodeExec.WorkflowNodeId);
             await endpoint.Send(new ProcessNodeCommand
             {
                 WorkflowExecutionId = execution.Id,
                 NodeExecutionId = nodeExec.Id,
-                NodeType = workflowNode.NodeType,
+                NodeType = nodeDef.NodeType,
                 InputArtifactPath = nodeExec.InputArtifactPath ?? string.Empty,
                 OutputArtifactDir = nodeExec.OutputArtifactDir ?? string.Empty,
-                ConfigJson = workflowNode.ConfigJson
+                ConfigJson = nodeDef.ConfigJson
             }, ct);
         }
 
@@ -250,10 +245,13 @@ public class WorkflowsController : ControllerBase
             execution.ErrorMessage));
     }
 
-    private static WorkflowDto ToDto(Workflow w) => new(
+    private static List<WorkflowNodeDefinition> DeserializeNodes(string json) =>
+        JsonSerializer.Deserialize<List<WorkflowNodeDefinition>>(json) ?? new();
+
+    private static WorkflowDto ToDto(Workflow w, WorkflowVersion version, List<WorkflowNodeDefinition> nodes) => new(
         w.Id,
         w.Name,
-        w.Nodes.OrderBy(n => n.Order).Select(n => new WorkflowNodeDto(n.Id, n.Order, n.NodeType, n.ConfigJson, n.SourceNodeId, n.SourceOutputName)).ToList(),
+        nodes.OrderBy(n => n.Order).Select(n => new WorkflowNodeDto(n.Id, n.Order, n.NodeType, n.ConfigJson, n.SourceNodeId, n.SourceOutputName)).ToList(),
         w.CreatedAt,
         w.UpdatedAt);
 }
