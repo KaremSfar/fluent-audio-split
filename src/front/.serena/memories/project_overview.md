@@ -11,6 +11,7 @@ React SPA for **Fluent Audio Split** — an audio stem separation app. Users upl
 - **HTTP Client**: Axios via `src/services/apiClient.ts`
 - **Routing**: React Router v7
 - **Server State**: TanStack Query (React Query v5)
+- **Graph/Canvas**: React Flow (`@xyflow/react`) + dagre (`@dagrejs/dagre`) for auto-layout
 - **SSE**: `@microsoft/fetch-event-source` for execution progress streaming
 - **Telemetry**: OpenTelemetry — `src/telemetry/otel.ts`
 
@@ -18,6 +19,7 @@ React SPA for **Fluent Audio Split** — an audio stem separation app. Users upl
 ```
 src/
   auth/           # AuthContext, authService, useAuth hook
+  components/     # AudioSeparationNode (custom React Flow node)
   components/ui/  # shadcn/ui components
   hooks/          # useExecutionStream (SSE hook)
   lib/            # models.ts (MODEL_DEFINITIONS, getStemsForModel, STEM_COLORS), utils.ts
@@ -38,12 +40,15 @@ src/
 
 ## Key Concepts
 
-### WorkflowCanvasPage (DAG editor)
-- Nodes are displayed in a tree layout (grouped by depth level)
-- Each node card shows model selector + stem output buttons
-- Clicking a stem button adds a child node connected via that stem
-- New nodes get `id: "new:<uuid>"` locally; on save, `id` is omitted so the API inserts them
-- `saveMutation` strips `new:` prefix IDs before sending to API
+### WorkflowCanvasPage (DAG editor — React Flow)
+- Uses **React Flow** (`@xyflow/react`) for the node graph with automatic **dagre** layout
+- Custom node type: `AudioSeparationNode` (registered as `audioSeparation` in `nodeTypes`)
+- Layout function `layoutWithDagre` computes node positions (top-to-bottom, `rankdir: TB`)
+- `toRF` / `fromRF` convert between API `WorkflowNodeDefinition[]` and React Flow nodes/edges
+- `ExecuteDialog` allows selecting an input file to execute the workflow
+- Node callbacks (`onConfigChange`, `onRemove`) passed via `NodeCallbacksContext`
+- Each node card shows model selector + stem output buttons; clicking a stem adds a child edge
+- Save creates a new `WorkflowVersion` with the serialized node graph
 
 ### MODEL_DEFINITIONS (src/lib/models.ts)
 - Hardcoded list of models with their stems and display colors
