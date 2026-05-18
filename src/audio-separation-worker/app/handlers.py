@@ -1,3 +1,4 @@
+import gc
 import json
 import logging
 from pathlib import Path
@@ -57,6 +58,8 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
         )
         separator.load_model(model_filename=model_name)
         output_files: list[str] = separator.separate(str(abs_input), output_names)
+        del separator
+        gc.collect()
 
         abs_base = storage.get_absolute_path("").resolve()
         output_map: dict[str, str] = {}

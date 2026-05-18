@@ -13,6 +13,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
 
   api:
     build:
@@ -32,6 +37,11 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
 
   worker:
     build:
@@ -50,15 +60,40 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "3"
+          memory: 5G
 
   front:
     build:
       context: ./src/front
       dockerfile: Dockerfile
       args:
-        VITE_SERVICE_URL: http://localhost:8080
+        VITE_SERVICE_URL: http://localhost:8765
     ports:
       - "3000:80"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+  gateway:
+    image: nginx:alpine
+    ports:
+      - "8765:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - front
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
 
 volumes:
   api-data:
