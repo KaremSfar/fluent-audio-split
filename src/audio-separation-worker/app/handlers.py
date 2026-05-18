@@ -2,6 +2,7 @@ import json
 import logging
 from pathlib import Path
 
+from app.config import MODEL_FILE_DIR
 from app.models import DEFAULT_MODEL, MODEL_STEMS
 from app.publisher import publish_node_completed, publish_node_failed, publish_node_started
 from app.storage import FileStorageProvider
@@ -50,7 +51,10 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
 
         from audio_separator.separator import Separator
 
-        separator = Separator(output_dir=str(abs_output_dir))
+        separator = Separator(
+            model_file_dir=MODEL_FILE_DIR,
+            output_dir=str(abs_output_dir),
+        )
         separator.load_model(model_filename=model_name)
         output_files: list[str] = separator.separate(str(abs_input), output_names)
 

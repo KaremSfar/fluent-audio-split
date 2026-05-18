@@ -43,8 +43,10 @@ services:
       - RABBITMQ_USER=guest
       - RABBITMQ_PASS=guest
       - SHARED_DATA_PATH=/data/audio
+      - AUDIO_SEPARATOR_MODEL_DIR=/models
     volumes:
       - shared-audio:/data/audio
+      - model-cache:/models
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -61,3 +63,4 @@ services:
 volumes:
   api-data:
   shared-audio:
+  model-cache:
