@@ -49,9 +49,17 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
 
         publish_node_started(workflow_execution_id, node_execution_id)
 
+        ensemble_enabled: bool = config.get("ensembleEnabled") is True
+        ensemble_models: list[str] = config.get("ensembleModels") or []
+        ensemble_algorithm: str = config.get("ensembleMethod", "avg_wave")
+        advanced_params: dict | None = config.get("advancedParams") or None
+
         separator = create_audio_separator()
         output_files = separator.separate(
-            abs_input, abs_output_dir, model_name, output_names
+            abs_input, abs_output_dir, model_name, output_names,
+            extra_models=ensemble_models if ensemble_enabled else None,
+            ensemble_algorithm=ensemble_algorithm,
+            advanced_params=advanced_params,
         )
 
         abs_base = storage.get_absolute_path("").resolve()

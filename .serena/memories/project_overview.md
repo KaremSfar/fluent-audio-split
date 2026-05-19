@@ -15,11 +15,14 @@ React SPA (port 3000) ↔ C# ASP.NET API (port 8080) ↔ RabbitMQ ↔ Python Wor
 ```
 /
 ├── docker-compose.yml          # Full-stack orchestration
+├── .env.example                # Template: VITE_SERVICE_URL, AUDIO_SEPARATOR_API_URL, AUDIO_SEPARATOR_API_KEY
+├── .gitignore                  # Ignores .env
 ├── README.md
 └── src/
     ├── front/                  # React 19 + TypeScript + Vite + React Flow
     ├── main-api/               # ASP.NET Core .NET 10, EF Core, MassTransit
-    └── audio-separation-worker/ # Python 3.12, kombu, audio-separator
+    ├── audio-separation-worker/ # Python 3.12, kombu, audio-separator
+    └── modal-deploy/           # Scripts to deploy audio-separator on Modal (GPU cloud)
 ```
 
 Each sub-project has its own Dockerfile and is configured as a separate Serena project (`front`, `main-api`, `audio-separation-worker`).
@@ -32,6 +35,8 @@ Each sub-project has its own Dockerfile and is configured as a separate Serena p
   - `src/main-api/FluentAudioSplit.Domain/Models/StemDefinitions.cs` (C#)
   - `src/front/src/lib/models.ts` (TypeScript)
 - **Relative file paths**: All file references in DB/messages are relative to the shared volume mount.
+- **Local/Remote separation**: Worker can either run ML locally or delegate to a remote API (Modal deployment). Controlled by `AUDIO_SEPARATOR_API_URL` env var. See `audio-separation-worker/app/separator.py`.
+- **Advanced params**: Per-node separation params (output_format, arch-specific knobs like mdx_segment_size, vr_aggression, etc.) flow through `configJson.advancedParams` from frontend to worker.
 
 ## Services (Docker Compose)
 | Service | Port | Image/Build |

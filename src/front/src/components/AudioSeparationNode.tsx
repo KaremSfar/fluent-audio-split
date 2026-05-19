@@ -1,7 +1,8 @@
-import { memo, useCallback, useContext, createContext } from 'react';
+import { memo, useCallback, useContext, createContext, useState } from 'react';
 import { Handle, Position, useEdges, type NodeProps } from '@xyflow/react';
 import { Badge } from '@/components/ui/badge';
-import { MODEL_DEFINITIONS, getStemsForModel, STEM_COLORS, type EnsembleMethod } from '@/lib/models';
+import { MODEL_DEFINITIONS, ENSEMBLE_ALGORITHMS, getStemsForModel, STEM_COLORS, type EnsembleMethod } from '@/lib/models';
+import { AdvancedParamsModal } from '@/components/AdvancedParamsModal';
 
 // ── Context for callbacks (avoids storing non-serializable fns in node data) ──
 export interface NodeCallbacks {
@@ -38,6 +39,8 @@ function AudioSeparationNode({ data }: NodeProps) {
   const { nodeId, configJson, isRoot, nodeIndex } = data as unknown as AudioSeparationNodeData;
   const { onConfigChange, onRemove } = useContext(NodeCallbacksContext);
 
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   // Derive connected stems from live edges — no stale Set in data
   const edges = useEdges();
   const connectedStems = new Set(
@@ -49,9 +52,13 @@ function AudioSeparationNode({ data }: NodeProps) {
   })();
   const modelName: string = config.modelName ?? 'htdemucs_ft.yaml';
   const ensembleModels: string[] = config.ensembleModels ?? [];
-  const ensembleMethod: EnsembleMethod = config.ensembleMethod ?? 'avg';
+  const ensembleMethod: EnsembleMethod = config.ensembleMethod ?? 'avg_wave';
   const ensembleEnabled: boolean = config.ensembleEnabled === true;
+  const advancedParams: Record<string, unknown> = config.advancedParams ?? {};
   const stems = getStemsForModel(modelName);
+
+  const modelDef = MODEL_DEFINITIONS.find((m) => m.value === modelName);
+  const arch = modelDef?.arch ?? 'mdxc';
 
   // Compatible models for ensemble = same stem set as primary, not already added
   const stemsKey = [...stems].sort().join(',');
@@ -108,6 +115,17 @@ function AudioSeparationNode({ data }: NodeProps) {
     [updateConfig],
   );
 
+  const handleAdvancedParamChange = useCallback(
+    (key: string, val: unknown) => {
+      updateConfig({ advancedParams: { ...advancedParams, [key]: val } });
+    },
+    [updateConfig, advancedParams],
+  );
+
+  const handleAdvancedReset = useCallback(() => {
+    updateConfig({ advancedParams: {} });
+  }, [updateConfig]);
+
   // Group MODEL_DEFINITIONS by category for <optgroup>
   const modelsByCategory = MODEL_DEFINITIONS.reduce<Record<string, typeof MODEL_DEFINITIONS>>(
     (acc, m) => {
@@ -155,7 +173,17 @@ function AudioSeparationNode({ data }: NodeProps) {
 
       {/* Model selector — grouped by category */}
       <div className="px-4 pt-3 pb-0 space-y-1">
-        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Model</label>
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Model</label>
+          <button
+            onClick={() => setShowAdvanced(true)}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground py-0.5 px-1.5 rounded hover:bg-muted/50 transition-colors"
+            title="Advanced separation parameters"
+          >
+            <span>⚙</span>
+            <span>Advanced</span>
+          </button>
+        </div>
         <select
           value={modelName}
           onChange={handleModelChange}
@@ -170,6 +198,17 @@ function AudioSeparationNode({ data }: NodeProps) {
           ))}
         </select>
       </div>
+
+      {showAdvanced && (
+        <AdvancedParamsModal
+          arch={arch}
+          modelLabel={modelDef?.label ?? modelName}
+          params={advancedParams}
+          onChange={handleAdvancedParamChange}
+          onReset={handleAdvancedReset}
+          onClose={() => setShowAdvanced(false)}
+        />
+      )}
 
       {/* ── Ensemble section ──────────────────────────────────────────────── */}
       <div className="px-4 pt-3 pb-0">
@@ -203,8 +242,17 @@ function AudioSeparationNode({ data }: NodeProps) {
                 onChange={handleEnsembleMethodChange}
                 className="flex h-7 flex-1 rounded-md border border-input bg-transparent px-2 py-0.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <option value="avg">Average</option>
-                <option value="median">Median</option>
+                {Object.entries(
+                  ENSEMBLE_ALGORITHMS.reduce<Record<string, typeof ENSEMBLE_ALGORITHMS>>(
+                    (acc, a) => { (acc[a.group] ??= []).push(a); return acc; }, {}
+                  )
+                ).map(([group, algos]) => (
+                  <optgroup key={group} label={group}>
+                    {algos.map((a) => (
+                      <option key={a.value} value={a.value}>{a.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
             </div>
 

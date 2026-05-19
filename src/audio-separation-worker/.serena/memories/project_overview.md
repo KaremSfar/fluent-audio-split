@@ -27,6 +27,7 @@ src/audio-separation-worker/
     ├── consumer.py             ← MassTransitConsumer (kombu ConsumerMixin)
     ├── publisher.py            ← publish_node_started/completed/failed
     ├── storage.py              ← FileStorageProvider / LocalFileStorageProvider
+    ├── separator.py            ← AudioSeparator ABC + LocalAudioSeparator + RemoteAudioSeparator + create_audio_separator()
     ├── config.py               ← Env-based config constants
     ├── celery.py               ← Celery app instance (utility tasks)
     └── tasks.py                ← Celery tasks (health_check)
@@ -42,16 +43,41 @@ src/audio-separation-worker/
 ## Model Registry (app/models.py)
 ```python
 MODEL_STEMS = {
-    "htdemucs_ft.yaml":               ["Vocals", "Drums", "Bass", "Other"],  # default
-    "htdemucs.yaml":                  ["Vocals", "Drums", "Bass", "Other"],
-    "htdemucs_6s.yaml":               ["Vocals", "Drums", "Bass", "Other", "Guitar", "Piano"],
-    "UVR-MDX-NET-Inst_HQ_3.onnx":     ["Vocals", "Instrumental"],
-    "vocals_mel_band_roformer.ckpt":   ["Vocals", "Other"],
+    # Demucs v4 splitters
+    "htdemucs_ft.yaml":                                  ["Vocals", "Drums", "Bass", "Other"],  # default
+    "htdemucs.yaml":                                     ["Vocals", "Drums", "Bass", "Other"],
+    "htdemucs_6s.yaml":                                  ["Vocals", "Drums", "Bass", "Other", "Guitar", "Piano"],
+    # MDX-Net
+    "UVR-MDX-NET-Inst_HQ_3.onnx":                        ["Vocals", "Instrumental"],
+    # Roformer splitters
+    "vocals_mel_band_roformer.ckpt":                     ["Vocals", "Other"],
+    "melband_roformer_inst_v2.ckpt":                     ["Vocals", "Instrumental"],
+    # Roformer debleed / denoise
+    "mel_band_roformer_bleed_suppressor_v1.ckpt":        ["Instrumental", "Bleed"],
+    "denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt": ["Dry", "Other"],
 }
 DEFAULT_MODEL = "htdemucs_ft.yaml"
 ```
 Keys are **exact filenames** passed to `separator.load_model()` — must include extension.
 Must be kept in sync with `StemDefinitions.cs` (API) and `models.ts` (frontend).
+
+## Separator Abstraction (app/separator.py)
+- `AudioSeparator` — ABC with `separate(input_path, output_dir, model_name, output_names, extra_models?, ensemble_algorithm?, advanced_params?) → list[str]`
+- `LocalAudioSeparator` — runs ML inference locally (default when `AUDIO_SEPARATOR_API_URL` is unset). Maps `advanced_params` to `Separator()` constructor kwargs + arch-specific param dicts (`mdx_params`, `vr_params`, `demucs_params`, `mdxc_params`).
+- `RemoteAudioSeparator` — delegates to a Modal/remote API via `AudioSeparatorAPIClient`. Passes `advanced_params` as flat kwargs to `separate_audio_and_wait()`.
+- Ensemble is handled natively by the SDK — `Separator(ensemble_algorithm=...)` + `load_model([m1, m2, ...])`; no custom blending needed
+- `create_audio_separator()` — factory; returns Remote if `AUDIO_SEPARATOR_API_URL` is set, else Local
+
+## Ensemble Support
+Ensemble is configured per-node via `configJson`:
+```json
+{ "modelName": "htdemucs_ft.yaml", "ensembleEnabled": true, "ensembleModels": ["htdemucs.yaml"], "ensembleMethod": "avg_wave" }
+```
+`ensembleMethod` uses SDK algorithm names directly: `avg_wave` (default), `median_wave`, `min_wave`, `max_wave`, `avg_fft`, `median_fft`, `min_fft`, `max_fft`, `uvr_max_spec`, `uvr_min_spec`, `ensemble_wav`.
+Compatible models = same stem set as primary. The SDK's `ensemble_algorithm` param handles blending natively.
+
+## Advanced Parameters
+`configJson.advancedParams` is an optional dict of separation params (e.g. `output_format`, `normalization_threshold`, `mdx_segment_size`, `vr_aggression`, etc.). The handler reads it and passes it through to `separator.separate()`. `LocalAudioSeparator` maps arch-prefixed keys (e.g. `mdx_segment_size`) to nested param dicts (`mdx_params={"segment_size": ...}`). `RemoteAudioSeparator` passes them as flat kwargs. Common keys: `output_format`, `normalization_threshold`, `amplification_threshold`, `invert_using_spec`, `sample_rate`, `use_soundfile`, `use_autocast`.
 
 ## Configuration
 | Variable | Default | Description |
@@ -61,3 +87,5 @@ Must be kept in sync with `StemDefinitions.cs` (API) and `models.ts` (frontend).
 | `RABBITMQ_USER` | `guest` | RabbitMQ username |
 | `RABBITMQ_PASS` | `guest` | RabbitMQ password |
 | `SHARED_DATA_PATH` | `/data` | Mount point for shared audio files |
+| `AUDIO_SEPARATOR_API_URL` | `""` | If set, use remote API instead of local GPU |
+| `AUDIO_SEPARATOR_API_KEY` | `""` | API key for remote audio separator |
