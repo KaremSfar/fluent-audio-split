@@ -4,8 +4,6 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
-    ports:
-      - "15672:15672" # Management UI (dev only)
     expose:
       - "5672"
     healthcheck:
@@ -23,8 +21,6 @@ services:
     build:
       context: ./src/main-api
       dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Data Source=/data/fluent_audio_split.db
@@ -72,8 +68,6 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_SERVICE_URL: http://localhost:8765
-    ports:
-      - "3000:80"
     deploy:
       resources:
         limits:
