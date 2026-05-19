@@ -50,6 +50,8 @@ services:
       - RABBITMQ_PASS=guest
       - SHARED_DATA_PATH=/data/audio
       - AUDIO_SEPARATOR_MODEL_DIR=/models
+      - AUDIO_SEPARATOR_API_URL=${AUDIO_SEPARATOR_API_URL:-}
+      - AUDIO_SEPARATOR_API_KEY=${AUDIO_SEPARATOR_API_KEY:-}
     volumes:
       - shared-audio:/data/audio
       - model-cache:/models
@@ -67,7 +69,7 @@ services:
       context: ./src/front
       dockerfile: Dockerfile
       args:
-        VITE_SERVICE_URL: http://localhost:8765
+        VITE_SERVICE_URL: ${VITE_SERVICE_URL:-http://localhost:8765}
     deploy:
       resources:
         limits:

@@ -18,3 +18,7 @@ RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "rpc://")
 SHARED_DATA_PATH = os.getenv("SHARED_DATA_PATH", "/data")
 
 MODEL_FILE_DIR = os.getenv("AUDIO_SEPARATOR_MODEL_DIR", "/models")
+
+# Remote audio separator API (if set, worker delegates separation to remote server)
+AUDIO_SEPARATOR_API_URL = os.getenv("AUDIO_SEPARATOR_API_URL", "")
+AUDIO_SEPARATOR_API_KEY = os.getenv("AUDIO_SEPARATOR_API_KEY", "")

@@ -1,11 +1,10 @@
-import gc
 import json
 import logging
 from pathlib import Path
 
-from app.config import MODEL_FILE_DIR
 from app.models import DEFAULT_MODEL, MODEL_STEMS
 from app.publisher import publish_node_completed, publish_node_failed, publish_node_started
+from app.separator import create_audio_separator
 from app.storage import FileStorageProvider
 
 logger = logging.getLogger("worker.handlers")
@@ -50,16 +49,10 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
 
         publish_node_started(workflow_execution_id, node_execution_id)
 
-        from audio_separator.separator import Separator
-
-        separator = Separator(
-            model_file_dir=MODEL_FILE_DIR,
-            output_dir=str(abs_output_dir),
+        separator = create_audio_separator()
+        output_files = separator.separate(
+            abs_input, abs_output_dir, model_name, output_names
         )
-        separator.load_model(model_filename=model_name)
-        output_files: list[str] = separator.separate(str(abs_input), output_names)
-        del separator
-        gc.collect()
 
         abs_base = storage.get_absolute_path("").resolve()
         output_map: dict[str, str] = {}
