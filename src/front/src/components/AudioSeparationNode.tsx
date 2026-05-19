@@ -1,8 +1,6 @@
-import { memo, useCallback, useContext, createContext, useState } from 'react';
+import { memo, useContext, createContext } from 'react';
 import { Handle, Position, useEdges, type NodeProps } from '@xyflow/react';
-import { Badge } from '@/components/ui/badge';
-import { MODEL_DEFINITIONS, ENSEMBLE_ALGORITHMS, getStemsForModel, STEM_COLORS, type EnsembleMethod } from '@/lib/models';
-import { AdvancedParamsModal } from '@/components/AdvancedParamsModal';
+import { MODEL_DEFINITIONS, getStemsForModel, STEM_COLORS } from '@/lib/models';
 
 // ── Context for callbacks (avoids storing non-serializable fns in node data) ──
 export interface NodeCallbacks {
@@ -28,20 +26,10 @@ export type AudioSeparationRFNode = {
   data: AudioSeparationNodeData;
 };
 
-// ── Category labels for <optgroup> ────────────────────────────────────────────
-const CATEGORY_LABELS: Record<string, string> = {
-  splitter: 'Splitter / Vocal Remover',
-  debleed: 'Debleed',
-  denoise: 'Denoise',
-};
-
-function AudioSeparationNode({ data }: NodeProps) {
+function AudioSeparationNode({ data, selected }: NodeProps) {
   const { nodeId, configJson, isRoot, nodeIndex } = data as unknown as AudioSeparationNodeData;
-  const { onConfigChange, onRemove } = useContext(NodeCallbacksContext);
+  const { onRemove } = useContext(NodeCallbacksContext);
 
-  const [showAdvanced, setShowAdvanced] = useState(false);
-
-  // Derive connected stems from live edges — no stale Set in data
   const edges = useEdges();
   const connectedStems = new Set(
     edges.filter((e) => e.source === nodeId).map((e) => e.sourceHandle ?? ''),
@@ -52,92 +40,19 @@ function AudioSeparationNode({ data }: NodeProps) {
   })();
   const modelName: string = config.modelName ?? 'htdemucs_ft.yaml';
   const ensembleModels: string[] = config.ensembleModels ?? [];
-  const ensembleMethod: EnsembleMethod = config.ensembleMethod ?? 'avg_wave';
   const ensembleEnabled: boolean = config.ensembleEnabled === true;
-  const advancedParams: Record<string, unknown> = config.advancedParams ?? {};
   const stems = getStemsForModel(modelName);
 
   const modelDef = MODEL_DEFINITIONS.find((m) => m.value === modelName);
   const arch = modelDef?.arch ?? 'mdxc';
 
-  // Compatible models for ensemble = same stem set as primary, not already added
-  const stemsKey = [...stems].sort().join(',');
-  const compatibleModels = MODEL_DEFINITIONS.filter(
-    (m) =>
-      m.value !== modelName &&
-      !ensembleModels.includes(m.value) &&
-      [...m.stems].sort().join(',') === stemsKey,
-  );
-
-  const updateConfig = useCallback(
-    (patch: Record<string, unknown>) => {
-      onConfigChange(nodeId as string, JSON.stringify({ ...config, ...patch }));
-    },
-    [nodeId, config, onConfigChange],
-  );
-
-  const handleModelChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      // Clear ensemble when model changes — stems may be incompatible
-      updateConfig({ modelName: e.target.value, ensembleModels: [], ensembleEnabled: false });
-    },
-    [updateConfig],
-  );
-
-  const toggleEnsemble = useCallback(() => {
-    if (ensembleEnabled) {
-      updateConfig({ ensembleEnabled: false, ensembleModels: [] });
-    } else {
-      updateConfig({ ensembleEnabled: true });
-    }
-  }, [ensembleEnabled, updateConfig]);
-
-  const handleAddEnsembleModel = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      if (!e.target.value) return;
-      updateConfig({ ensembleModels: [...ensembleModels, e.target.value] });
-      e.target.value = '';
-    },
-    [ensembleModels, updateConfig],
-  );
-
-  const handleRemoveEnsembleModel = useCallback(
-    (m: string) => {
-      updateConfig({ ensembleModels: ensembleModels.filter((x) => x !== m) });
-    },
-    [ensembleModels, updateConfig],
-  );
-
-  const handleEnsembleMethodChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      updateConfig({ ensembleMethod: e.target.value as EnsembleMethod });
-    },
-    [updateConfig],
-  );
-
-  const handleAdvancedParamChange = useCallback(
-    (key: string, val: unknown) => {
-      updateConfig({ advancedParams: { ...advancedParams, [key]: val } });
-    },
-    [updateConfig, advancedParams],
-  );
-
-  const handleAdvancedReset = useCallback(() => {
-    updateConfig({ advancedParams: {} });
-  }, [updateConfig]);
-
-  // Group MODEL_DEFINITIONS by category for <optgroup>
-  const modelsByCategory = MODEL_DEFINITIONS.reduce<Record<string, typeof MODEL_DEFINITIONS>>(
-    (acc, m) => {
-      (acc[m.category] ??= []).push(m);
-      return acc;
-    },
-    {},
-  );
+  const borderClass = selected
+    ? 'border-violet-600 ring-2 ring-violet-300'
+    : 'border-violet-400';
 
   return (
-    <div className="w-80 rounded-xl border-2 border-violet-400 bg-background shadow-lg" style={{ position: 'relative' }}>
-      {/* Input handle — left edge, vertically centered on full card */}
+    <div className={`w-64 rounded-xl border-2 ${borderClass} bg-background shadow-lg transition-shadow`} style={{ position: 'relative' }}>
+      {/* Input handle */}
       <Handle
         type="target"
         position={Position.Left}
@@ -154,16 +69,14 @@ function AudioSeparationNode({ data }: NodeProps) {
       />
 
       {/* Header */}
-      <div className="bg-violet-500 text-white rounded-t-xl px-4 py-2 flex items-center gap-2">
-        <span className="text-lg">🎛️</span>
-        <span className="font-semibold text-sm">Audio Separation</span>
-        <Badge variant="secondary" className="ml-auto text-xs bg-violet-300 text-violet-900">
-          Node {(nodeIndex as number) + 1}
-        </Badge>
+      <div className="bg-violet-500 text-white rounded-t-xl px-3 py-2 flex items-center gap-2">
+        <span className="text-base">🎛️</span>
+        <span className="font-semibold text-xs flex-1 truncate">Node {(nodeIndex as number) + 1}</span>
+        <span className="text-[9px] font-mono uppercase bg-violet-400/60 rounded px-1.5 py-0.5">{arch}</span>
         {!isRoot && (
           <button
-            onClick={() => onRemove(nodeId as string)}
-            className="ml-1 text-violet-200 hover:text-white text-xs"
+            onClick={(e) => { e.stopPropagation(); onRemove(nodeId as string); }}
+            className="ml-1 text-violet-200 hover:text-white text-xs shrink-0"
             title="Remove node"
           >
             ✕
@@ -171,139 +84,26 @@ function AudioSeparationNode({ data }: NodeProps) {
         )}
       </div>
 
-      {/* Model selector — grouped by category */}
-      <div className="px-4 pt-3 pb-0 space-y-1">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Model</label>
-          <button
-            onClick={() => setShowAdvanced(true)}
-            className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground py-0.5 px-1.5 rounded hover:bg-muted/50 transition-colors"
-            title="Advanced separation parameters"
-          >
-            <span>⚙</span>
-            <span>Advanced</span>
-          </button>
-        </div>
-        <select
-          value={modelName}
-          onChange={handleModelChange}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          {Object.entries(modelsByCategory).map(([cat, models]) => (
-            <optgroup key={cat} label={CATEGORY_LABELS[cat] ?? cat}>
-              {models.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </div>
-
-      {showAdvanced && (
-        <AdvancedParamsModal
-          arch={arch}
-          modelLabel={modelDef?.label ?? modelName}
-          params={advancedParams}
-          onChange={handleAdvancedParamChange}
-          onReset={handleAdvancedReset}
-          onClose={() => setShowAdvanced(false)}
-        />
-      )}
-
-      {/* ── Ensemble section ──────────────────────────────────────────────── */}
-      <div className="px-4 pt-3 pb-0">
-        <div className="flex items-center justify-between mb-1">
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            Ensemble
-          </label>
-          {/* Toggle switch */}
-          <button
-            onClick={toggleEnsemble}
-            title={ensembleEnabled ? 'Disable ensemble' : 'Enable ensemble — blend multiple models'}
-            className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none ${
-              ensembleEnabled ? 'bg-violet-500' : 'bg-slate-300'
-            }`}
-          >
-            <span
-              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
-                ensembleEnabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-              }`}
-            />
-          </button>
-        </div>
-
-        {ensembleEnabled && (
-          <div className="mt-1 mb-1 space-y-2">
-            {/* Blend method */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground shrink-0">Blend</span>
-              <select
-                value={ensembleMethod}
-                onChange={handleEnsembleMethodChange}
-                className="flex h-7 flex-1 rounded-md border border-input bg-transparent px-2 py-0.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {Object.entries(
-                  ENSEMBLE_ALGORITHMS.reduce<Record<string, typeof ENSEMBLE_ALGORITHMS>>(
-                    (acc, a) => { (acc[a.group] ??= []).push(a); return acc; }, {}
-                  )
-                ).map(([group, algos]) => (
-                  <optgroup key={group} label={group}>
-                    {algos.map((a) => (
-                      <option key={a.value} value={a.value}>{a.label}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
-
-            {/* Added models chips */}
-            {ensembleModels.map((m) => {
-              const def = MODEL_DEFINITIONS.find((d) => d.value === m);
-              return (
-                <div
-                  key={m}
-                  className="flex items-center gap-1 rounded-md bg-violet-50 border border-violet-200 px-2 py-1"
-                >
-                  <span className="text-xs flex-1 text-violet-800 truncate">{def?.label ?? m}</span>
-                  <button
-                    onClick={() => handleRemoveEnsembleModel(m)}
-                    className="text-violet-400 hover:text-violet-700 text-xs ml-1 shrink-0"
-                    title="Remove from ensemble"
-                  >
-                    ✕
-                  </button>
-                </div>
-              );
-            })}
-
-            {/* Add compatible model */}
-            {compatibleModels.length > 0 ? (
-              <select
-                onChange={handleAddEnsembleModel}
-                defaultValue=""
-                className="flex h-7 w-full rounded-md border border-dashed border-violet-300 bg-transparent px-2 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-muted-foreground"
-              >
-                <option value="" disabled>+ Add compatible model…</option>
-                {compatibleModels.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
-            ) : (
-              ensembleModels.length === 0 && (
-                <p className="text-xs text-muted-foreground italic">
-                  No compatible models for ensemble with this selection
-                </p>
-              )
-            )}
-          </div>
+      {/* Model label */}
+      <div className="px-3 py-2 border-b border-border/50">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Model</p>
+        <p className="text-xs text-foreground truncate leading-snug">{modelDef?.label ?? modelName}</p>
+        {ensembleEnabled && ensembleModels.length > 0 && (
+          <p className="text-[9px] text-violet-500 mt-0.5 font-medium">
+            + {ensembleModels.length} ensemble model{ensembleModels.length !== 1 ? 's' : ''}
+          </p>
         )}
       </div>
 
-      {/* Output stems — rows extend full width so handles hit the card border */}
-      <div className="pt-3 pb-3">
-        <label className="px-4 text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1.5">
-          Output Stems
-        </label>
+      {/* Click hint when not selected */}
+      {!selected && (
+        <div className="px-3 py-1 border-b border-border/30">
+          <p className="text-[9px] text-muted-foreground/50 italic text-center">click to configure</p>
+        </div>
+      )}
+
+      {/* Output stems */}
+      <div className="pt-2 pb-2">
         {stems.map((stem) => {
           const color = STEM_COLORS[stem] ?? 'bg-slate-400';
           const dotColor = stemColorHex(color);
@@ -311,7 +111,7 @@ function AudioSeparationNode({ data }: NodeProps) {
           return (
             <div
               key={stem}
-              className="flex items-center px-4 py-1"
+              className="flex items-center px-3 py-1"
               style={{ position: 'relative' }}
               title={connected ? `${stem} — connected` : `${stem} — drag to connect`}
             >
@@ -319,7 +119,6 @@ function AudioSeparationNode({ data }: NodeProps) {
               <span className="ml-auto text-[10px] text-muted-foreground pr-4">
                 {connected ? '● linked' : '○ open'}
               </span>
-              {/* Handle sits on the right border of this row */}
               <Handle
                 type="source"
                 position={Position.Right}
@@ -354,9 +153,27 @@ function stemColorHex(twClass: string): string {
     'bg-indigo-400': '#818cf8',
     'bg-red-300': '#fca5a5',
     'bg-teal-400': '#2dd4bf',
+    'bg-cyan-400': '#22d3ee',
+    'bg-blue-300': '#93c5fd',
+    'bg-lime-400': '#a3e635',
+    'bg-yellow-300': '#fde047',
+    'bg-orange-300': '#fdba74',
+    'bg-green-300': '#86efac',
+    'bg-red-400': '#f87171',
+    'bg-yellow-400': '#facc15',
+    'bg-emerald-300': '#6ee7b7',
+    'bg-teal-300': '#5eead4',
+    'bg-blue-400': '#60a5fa',
+    'bg-pink-400': '#f472b6',
+    'bg-purple-300': '#d8b4fe',
+    'bg-sky-300': '#7dd3fc',
+    'bg-slate-300': '#cbd5e1',
+    'bg-violet-300': '#c4b5fd',
+    'bg-green-400': '#4ade80',
+    'bg-emerald-200': '#a7f3d0',
+    'bg-amber-200': '#fde68a',
   };
   return map[twClass] ?? '#8b5cf6';
 }
 
 export default memo(AudioSeparationNode);
-

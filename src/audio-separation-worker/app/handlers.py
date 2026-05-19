@@ -2,7 +2,7 @@ import json
 import logging
 from pathlib import Path
 
-from app.models import DEFAULT_MODEL, MODEL_STEMS
+from app.models import DEFAULT_MODEL
 from app.publisher import publish_node_completed, publish_node_failed, publish_node_started
 from app.separator import create_audio_separator
 from app.storage import FileStorageProvider
@@ -35,7 +35,7 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
     config = json.loads(payload.get("configJson", "{}"))
 
     model_name = config.get("modelName", DEFAULT_MODEL)
-    stems = MODEL_STEMS.get(model_name, ["Vocals", "Instrumental"])
+    stems: list[str] = config.get("stems") or ["Vocals", "Instrumental"]
     output_names = {stem: stem for stem in stems}
 
     try:
@@ -72,13 +72,23 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
             except ValueError:
                 rel = str(Path(output_dir) / p.name)
 
-            # Match the output file to a stem name
+            # Match the output file to a stem name.
+            # audio-separator wraps the stem name in parentheses: e.g. "(No Drums)".
+            # Check for the parenthesized form first so that "Drums" does not
+            # accidentally match a "(No Drums)" filename before "No Drums" does.
             file_stem = p.stem
+            file_stem_lower = file_stem.lower()
             matched_stem = None
-            for stem in stems:
-                if stem.lower() in file_stem.lower() or file_stem.lower() in stem.lower():
+            for stem in sorted(stems, key=len, reverse=True):
+                if f"({stem.lower()})" in file_stem_lower:
                     matched_stem = stem
                     break
+            # Fallback: plain substring match (longest stem first to stay safe)
+            if matched_stem is None:
+                for stem in sorted(stems, key=len, reverse=True):
+                    if stem.lower() in file_stem_lower:
+                        matched_stem = stem
+                        break
 
             if matched_stem:
                 output_map[matched_stem] = rel
