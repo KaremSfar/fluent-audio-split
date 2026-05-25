@@ -158,6 +158,8 @@ class RemoteAudioSeparator(AudioSeparator):
             poll_interval=10,
             download=True,
             output_dir=str(output_dir),
+            # API client expects a dict and handles JSON serialization internally
+            custom_output_names=output_names or None,
             # Pass all advanced params as flat kwargs (same naming as remote API)
             **ap,
         )

@@ -179,65 +179,62 @@ def separate_audio_function(
 
         _update_status("processing", 10)
 
-        for idx, model_name in enumerate(models):
-            base = 10 + (idx * 80 // total_models)
-            chunk = 80 // total_models
+        separator = Separator(
+            log_level=logging.INFO,
+            model_file_dir="/models",
+            output_dir=output_dir,
+            output_format=output_format,
+            output_bitrate=output_bitrate,
+            normalization_threshold=normalization_threshold,
+            amplification_threshold=amplification_threshold,
+            output_single_stem=output_single_stem,
+            invert_using_spec=invert_using_spec,
+            sample_rate=sample_rate,
+            use_soundfile=use_soundfile,
+            use_autocast=use_autocast,
+            ensemble_algorithm="avg_wave" if total_models > 1 else None,
+            mdx_params={"hop_length": mdx_hop_length, "segment_size": mdx_segment_size,
+                        "overlap": mdx_overlap, "batch_size": mdx_batch_size,
+                        "enable_denoise": mdx_enable_denoise},
+            vr_params={"batch_size": vr_batch_size, "window_size": vr_window_size,
+                       "aggression": vr_aggression, "enable_tta": vr_enable_tta,
+                       "enable_post_process": vr_enable_post_process,
+                       "post_process_threshold": vr_post_process_threshold,
+                       "high_end_process": vr_high_end_process},
+            demucs_params={"segment_size": demucs_segment_size, "shifts": demucs_shifts,
+                           "overlap": demucs_overlap, "segments_enabled": demucs_segments_enabled},
+            mdxc_params={"segment_size": mdxc_segment_size, "batch_size": mdxc_batch_size,
+                         "overlap": mdxc_overlap,
+                         "override_model_segment_size": mdxc_override_model_segment_size,
+                         "pitch_shift": mdxc_pitch_shift},
+        )
 
-            separator = Separator(
-                log_level=logging.INFO,
-                model_file_dir="/models",
-                output_dir=output_dir,
-                output_format=output_format,
-                output_bitrate=output_bitrate,
-                normalization_threshold=normalization_threshold,
-                amplification_threshold=amplification_threshold,
-                output_single_stem=output_single_stem,
-                invert_using_spec=invert_using_spec,
-                sample_rate=sample_rate,
-                use_soundfile=use_soundfile,
-                use_autocast=use_autocast,
-                mdx_params={"hop_length": mdx_hop_length, "segment_size": mdx_segment_size,
-                            "overlap": mdx_overlap, "batch_size": mdx_batch_size,
-                            "enable_denoise": mdx_enable_denoise},
-                vr_params={"batch_size": vr_batch_size, "window_size": vr_window_size,
-                           "aggression": vr_aggression, "enable_tta": vr_enable_tta,
-                           "enable_post_process": vr_enable_post_process,
-                           "post_process_threshold": vr_post_process_threshold,
-                           "high_end_process": vr_high_end_process},
-                demucs_params={"segment_size": demucs_segment_size, "shifts": demucs_shifts,
-                               "overlap": demucs_overlap, "segments_enabled": demucs_segments_enabled},
-                mdxc_params={"segment_size": mdxc_segment_size, "batch_size": mdxc_batch_size,
-                             "overlap": mdxc_overlap,
-                             "override_model_segment_size": mdxc_override_model_segment_size,
-                             "pitch_shift": mdxc_pitch_shift},
-            )
+        _update_status("processing", 30)
 
-            _update_status("processing", base + chunk // 2)
-            if model_name:
-                separator.load_model(model_name)
-                models_used.append(model_name)
-            else:
-                separator.load_model()
-                models_used.append("default")
+        # Load model(s) — list for ensemble, string for single model
+        valid_models = [m for m in models if m]
+        if len(valid_models) > 1:
+            separator.load_model(model_filename=valid_models)
+            models_used = list(valid_models)
+        elif valid_models:
+            separator.load_model(model_filename=valid_models[0])
+            models_used = [valid_models[0]]
+        else:
+            separator.load_model()
+            models_used = ["default"]
 
-            model_output_names = None
-            if total_models > 1 and custom_output_names:
-                suffix = f"_{models_used[-1].replace('.', '_').replace('/', '_')}"
-                model_output_names = {s: f"{n}{suffix}" for s, n in custom_output_names.items()}
-            elif custom_output_names:
-                model_output_names = custom_output_names
+        _update_status("processing", 50)
 
-            _update_status("processing", base + 3 * chunk // 4)
-            output_files = separator.separate(input_file_path, custom_output_names=model_output_names)
+        output_files = separator.separate(input_file_path, custom_output_names=custom_output_names)
 
-            if not output_files:
-                msg = f"Model {models_used[-1]} produced no output files"
-                _update_status("error", 0, error=msg)
-                return {"task_id": task_id, "status": "error", "error": msg,
-                        "models_used": models_used, "original_filename": filename}
+        if not output_files:
+            msg = f"Model(s) {models_used} produced no output files"
+            _update_status("error", 0, error=msg)
+            return {"task_id": task_id, "status": "error", "error": msg,
+                    "models_used": models_used, "original_filename": filename}
 
-            for fname in (os.path.basename(f) for f in output_files):
-                all_output_files[_file_hash(fname)] = fname
+        for fname in (os.path.basename(f) for f in output_files):
+            all_output_files[_file_hash(fname)] = fname
 
         volume.commit()
         models_volume.commit()
