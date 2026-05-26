@@ -19,7 +19,7 @@ React SPA for **Fluent Audio Split** — an audio stem separation app. Users upl
 ```
 src/
   auth/           # AuthContext, authService, useAuth hook
-  components/     # AudioSeparationNode (custom React Flow node)
+  components/     # AudioSeparationNode (custom React Flow node), NodeSidePanel (model/ensemble config drawer), AdvancedParamsModal
   components/ui/  # shadcn/ui components
   hooks/          # useExecutionStream (SSE hook)
   lib/            # models.ts (MODEL_DEFINITIONS, getStemsForModel, STEM_COLORS), utils.ts
@@ -50,10 +50,35 @@ src/
 - Each node card shows model selector + stem output buttons; clicking a stem adds a child edge
 - Save creates a new `WorkflowVersion` with the serialized node graph
 
+### NodeSidePanel (src/components/NodeSidePanel.tsx)
+- Slide-out panel for configuring a node in the workflow canvas
+- Model selector with category/arch filters (splitter, multistem, karaoke, denoise, etc.)
+- Ensemble mode: toggle ensemble, pick multiple models + ensemble algorithm
+- Ensemble presets modal (`EnsemblePresetsModal`)
+- `NodeConfig` interface: `{ modelName, stems, advancedParams, ensembleEnabled, ensembleModels, ensembleMethod }`
+- Emits serialized `configJson` string via `onConfigChange` callback
+
+### advancedParams (src/lib/advancedParams.ts + AdvancedParamsModal.tsx)
+- Every `AudioSeparationNode` has an "⚙ Advanced" button (tiny, in the model label row)
+- Opens a portal modal showing only params relevant to the selected model's arch
+- `ModelArch` = `'demucs' | 'mdx' | 'vr' | 'mdxc'` (Roformer/MelBand models use `mdxc`)
+- `PARAM_GROUPS`: common (7 params) + arch-specific (MDX 5, VR 7, Demucs 4, MDXC 5)
+- Params stored flat in `configJson.advancedParams = { output_format, normalization_threshold, ... }`
+- Worker reads `advancedParams`, maps to `Separator()` constructor kwargs + arch param dicts (local) or flat kwargs (remote)
+- Each param has a tooltip icon (ⓘ) showing the CLI description on hover
+
 ### MODEL_DEFINITIONS (src/lib/models.ts)
-- Hardcoded list of models with their stems and display colors
+- Hardcoded list of models with their stems, display colors, and `arch` field
+- `arch: ModelArch` added to `ModelDefinition` — determines which Advanced Params group to show
 - Must be kept in sync with API (`StemDefinitions.cs`) and worker (`models.py`)
 - Model values are full filenames incl. extension: `htdemucs_ft.yaml`, `UVR-MDX-NET-Inst_HQ_3.onnx`, etc.
+
+### ExecutionPage (src/pages/ExecutionPage.tsx)
+- Shows workflow execution progress and results
+- Fetches the parent `Workflow` to resolve each `NodeExecution.workflowNodeId` → node order + model name
+- Download section shows **"Node N (modelName)"** instead of generic "Audio Separation"
+- Real-time SSE updates via `useExecutionStream`
+- Retry button for failed nodes
 
 ### useExecutionStream (src/hooks/useExecutionStream.ts)
 - Connects to `GET /api/executions/{id}/stream` (SSE)

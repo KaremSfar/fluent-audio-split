@@ -4,3 +4,5 @@ onnxruntime
 # from the official PyTorch CPU index to avoid timeout on the default PyPI CDN.
 # Use audio-separator without extras since torch is already present.
 audio-separator
+numpy
+soundfile

@@ -1,6 +1,5 @@
-import { memo, useCallback, useContext, createContext } from 'react';
+import { memo, useContext, createContext } from 'react';
 import { Handle, Position, useEdges, type NodeProps } from '@xyflow/react';
-import { Badge } from '@/components/ui/badge';
 import { MODEL_DEFINITIONS, getStemsForModel, STEM_COLORS } from '@/lib/models';
 
 // ── Context for callbacks (avoids storing non-serializable fns in node data) ──
@@ -27,11 +26,10 @@ export type AudioSeparationRFNode = {
   data: AudioSeparationNodeData;
 };
 
-function AudioSeparationNode({ data }: NodeProps) {
+function AudioSeparationNode({ data, selected }: NodeProps) {
   const { nodeId, configJson, isRoot, nodeIndex } = data as unknown as AudioSeparationNodeData;
-  const { onConfigChange, onRemove } = useContext(NodeCallbacksContext);
+  const { onRemove } = useContext(NodeCallbacksContext);
 
-  // Derive connected stems from live edges — no stale Set in data
   const edges = useEdges();
   const connectedStems = new Set(
     edges.filter((e) => e.source === nodeId).map((e) => e.sourceHandle ?? ''),
@@ -41,18 +39,20 @@ function AudioSeparationNode({ data }: NodeProps) {
     try { return JSON.parse(configJson as string); } catch { return {}; }
   })();
   const modelName: string = config.modelName ?? 'htdemucs_ft.yaml';
+  const ensembleModels: string[] = config.ensembleModels ?? [];
+  const ensembleEnabled: boolean = config.ensembleEnabled === true;
   const stems = getStemsForModel(modelName);
 
-  const handleModelChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      onConfigChange(nodeId as string, JSON.stringify({ ...config, modelName: e.target.value }));
-    },
-    [nodeId, config, onConfigChange],
-  );
+  const modelDef = MODEL_DEFINITIONS.find((m) => m.value === modelName);
+  const arch = modelDef?.arch ?? 'mdxc';
+
+  const borderClass = selected
+    ? 'border-violet-600 ring-2 ring-violet-300'
+    : 'border-violet-400';
 
   return (
-    <div className="w-72 rounded-xl border-2 border-violet-400 bg-background shadow-lg" style={{ position: 'relative' }}>
-      {/* Input handle — left edge, vertically centered on full card */}
+    <div className={`w-64 rounded-xl border-2 ${borderClass} bg-background shadow-lg transition-shadow`} style={{ position: 'relative' }}>
+      {/* Input handle */}
       <Handle
         type="target"
         position={Position.Left}
@@ -69,16 +69,14 @@ function AudioSeparationNode({ data }: NodeProps) {
       />
 
       {/* Header */}
-      <div className="bg-violet-500 text-white rounded-t-xl px-4 py-2 flex items-center gap-2">
-        <span className="text-lg">🎛️</span>
-        <span className="font-semibold text-sm">Audio Separation</span>
-        <Badge variant="secondary" className="ml-auto text-xs bg-violet-300 text-violet-900">
-          Node {(nodeIndex as number) + 1}
-        </Badge>
+      <div className="bg-violet-500 text-white rounded-t-xl px-3 py-2 flex items-center gap-2">
+        <span className="text-base">🎛️</span>
+        <span className="font-semibold text-xs flex-1 truncate">Node {(nodeIndex as number) + 1}</span>
+        <span className="text-[9px] font-mono uppercase bg-violet-400/60 rounded px-1.5 py-0.5">{arch}</span>
         {!isRoot && (
           <button
-            onClick={() => onRemove(nodeId as string)}
-            className="ml-1 text-violet-200 hover:text-white text-xs"
+            onClick={(e) => { e.stopPropagation(); onRemove(nodeId as string); }}
+            className="ml-1 text-violet-200 hover:text-white text-xs shrink-0"
             title="Remove node"
           >
             ✕
@@ -86,25 +84,26 @@ function AudioSeparationNode({ data }: NodeProps) {
         )}
       </div>
 
-      {/* Model selector — padded */}
-      <div className="px-4 pt-3 pb-0 space-y-1">
-        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Model</label>
-        <select
-          value={modelName}
-          onChange={handleModelChange}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          {MODEL_DEFINITIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
+      {/* Model label */}
+      <div className="px-3 py-2 border-b border-border/50">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Model</p>
+        <p className="text-xs text-foreground truncate leading-snug">{modelDef?.label ?? modelName}</p>
+        {ensembleEnabled && ensembleModels.length > 0 && (
+          <p className="text-[9px] text-violet-500 mt-0.5 font-medium">
+            + {ensembleModels.length} ensemble model{ensembleModels.length !== 1 ? 's' : ''}
+          </p>
+        )}
       </div>
 
-      {/* Output stems — rows extend full width so handles hit the card border */}
-      <div className="pt-3 pb-3">
-        <label className="px-4 text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1.5">
-          Output Stems
-        </label>
+      {/* Click hint when not selected */}
+      {!selected && (
+        <div className="px-3 py-1 border-b border-border/30">
+          <p className="text-[9px] text-muted-foreground/50 italic text-center">click to configure</p>
+        </div>
+      )}
+
+      {/* Output stems */}
+      <div className="pt-2 pb-2">
         {stems.map((stem) => {
           const color = STEM_COLORS[stem] ?? 'bg-slate-400';
           const dotColor = stemColorHex(color);
@@ -112,7 +111,7 @@ function AudioSeparationNode({ data }: NodeProps) {
           return (
             <div
               key={stem}
-              className="flex items-center px-4 py-1"
+              className="flex items-center px-3 py-1"
               style={{ position: 'relative' }}
               title={connected ? `${stem} — connected` : `${stem} — drag to connect`}
             >
@@ -120,7 +119,6 @@ function AudioSeparationNode({ data }: NodeProps) {
               <span className="ml-auto text-[10px] text-muted-foreground pr-4">
                 {connected ? '● linked' : '○ open'}
               </span>
-              {/* Handle sits on the right border of this row */}
               <Handle
                 type="source"
                 position={Position.Right}
@@ -153,9 +151,29 @@ function stemColorHex(twClass: string): string {
     'bg-orange-400': '#fb923c',
     'bg-sky-400': '#38bdf8',
     'bg-indigo-400': '#818cf8',
+    'bg-red-300': '#fca5a5',
+    'bg-teal-400': '#2dd4bf',
+    'bg-cyan-400': '#22d3ee',
+    'bg-blue-300': '#93c5fd',
+    'bg-lime-400': '#a3e635',
+    'bg-yellow-300': '#fde047',
+    'bg-orange-300': '#fdba74',
+    'bg-green-300': '#86efac',
+    'bg-red-400': '#f87171',
+    'bg-yellow-400': '#facc15',
+    'bg-emerald-300': '#6ee7b7',
+    'bg-teal-300': '#5eead4',
+    'bg-blue-400': '#60a5fa',
+    'bg-pink-400': '#f472b6',
+    'bg-purple-300': '#d8b4fe',
+    'bg-sky-300': '#7dd3fc',
+    'bg-slate-300': '#cbd5e1',
+    'bg-violet-300': '#c4b5fd',
+    'bg-green-400': '#4ade80',
+    'bg-emerald-200': '#a7f3d0',
+    'bg-amber-200': '#fde68a',
   };
   return map[twClass] ?? '#8b5cf6';
 }
 
 export default memo(AudioSeparationNode);
-

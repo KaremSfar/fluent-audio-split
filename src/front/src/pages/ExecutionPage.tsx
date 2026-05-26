@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/useAuth';
 import { executionsService } from '@/services/executionsService';
 import { filesService } from '@/services/filesService';
+import { workflowsService } from '@/services/workflowsService';
 import { useExecutionStream } from '@/hooks/useExecutionStream';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +15,7 @@ import type {
   NodeStatusEvent,
   ExecutionStatusEvent,
 } from '@/types/execution';
+import type { WorkflowNode } from '@/types/workflow';
 
 function statusColor(status: WorkflowExecutionStatus | NodeExecutionStatus): string {
   switch (status) {
@@ -53,6 +55,20 @@ export default function ExecutionPage() {
     queryFn: () => executionsService.get(id!),
     enabled: !!id && isAuthenticated,
   });
+
+  const { data: workflow } = useQuery({
+    queryKey: ['workflow', execution?.workflowId],
+    queryFn: () => workflowsService.get(execution!.workflowId),
+    enabled: !!execution?.workflowId && isAuthenticated,
+  });
+
+  const nodeMap = useMemo(() => {
+    const map = new Map<string, WorkflowNode>();
+    if (workflow) {
+      for (const n of workflow.nodes) map.set(n.id, n);
+    }
+    return map;
+  }, [workflow]);
 
   const [nodeExecutions, setNodeExecutions] = useState<NodeExecution[]>([]);
   const [execStatus, setExecStatus] = useState<WorkflowExecutionStatus | null>(null);
@@ -171,6 +187,7 @@ export default function ExecutionPage() {
             <NodeExecutionCard
               key={node.id}
               node={node}
+              workflowNode={nodeMap.get(node.workflowNodeId)}
               onRetry={() => retryMutation.mutate({ nodeExecutionId: node.id })}
               isRetrying={retryMutation.isPending}
             />
@@ -183,10 +200,12 @@ export default function ExecutionPage() {
 
 function NodeExecutionCard({
   node,
+  workflowNode,
   onRetry,
   isRetrying,
 }: {
   node: NodeExecution;
+  workflowNode?: WorkflowNode;
   onRetry: () => void;
   isRetrying: boolean;
 }) {
@@ -194,7 +213,15 @@ function NodeExecutionCard({
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle className="text-base">Audio Separation</CardTitle>
+          <CardTitle className="text-base">
+            {workflowNode ? `Node ${workflowNode.order + 1}` : 'Audio Separation'}
+            {workflowNode && (() => {
+              try {
+                const cfg = JSON.parse(workflowNode.configJson);
+                return cfg.modelName ? <span className="ml-2 text-sm font-normal text-muted-foreground">({cfg.modelName.replace('.yaml', '')})</span> : null;
+              } catch { return null; }
+            })()}
+          </CardTitle>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Attempt #{node.attempt}</span>
             <span

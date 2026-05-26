@@ -28,6 +28,7 @@ import AudioSeparationNode, {
   NodeCallbacksContext,
   type AudioSeparationNodeData,
 } from '@/components/AudioSeparationNode';
+import { NodeSidePanel } from '@/components/NodeSidePanel';
 import type { WorkflowNode } from '@/types/workflow';
 import type { FileRecord } from '@/types/file';
 
@@ -173,6 +174,7 @@ export default function WorkflowCanvasPage() {
 
   const [showExecuteDialog, setShowExecuteDialog] = useState(false);
   const [saved, setSaved] = useState(true);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   // React Flow state
   const [rfNodes, setRfNodes] = useState<Node[]>([]);
@@ -242,7 +244,17 @@ export default function WorkflowCanvasPage() {
   }, [workflow, rfNodes.length]);
 
   const onNodesChange: OnNodesChange = useCallback(
-    (changes) => setRfNodes((nds) => applyNodeChanges(changes, nds)),
+    (changes) => {
+      setRfNodes((nds) => applyNodeChanges(changes, nds));
+      // Deselect panel when a node is deleted
+      const removals = changes.filter((c) => c.type === 'remove');
+      if (removals.length > 0) {
+        setSelectedNodeId((prev) => {
+          const removedIds = new Set(removals.map((c) => c.id));
+          return prev && removedIds.has(prev) ? null : prev;
+        });
+      }
+    },
     [],
   );
   const onEdgesChange: OnEdgesChange = useCallback(
@@ -381,36 +393,58 @@ export default function WorkflowCanvasPage() {
         </div>
       </header>
 
-      {/* Canvas */}
-      <main className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }}>
-        <NodeCallbacksContext.Provider value={{ onConfigChange: handleConfigChange, onRemove: handleRemoveNode }}>
-          <div style={{ position: 'absolute', inset: 0 }}>
-          <ReactFlow
-            nodes={rfNodes}
-            edges={rfEdges}
-            nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            fitView
-            fitViewOptions={{ padding: 0.2 }}
-            defaultEdgeOptions={{ style: { stroke: '#8b5cf6', strokeWidth: 2 } }}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background color="#d1d5db" gap={28} size={1} />
-            <Controls />
-            <MiniMap nodeColor="#8b5cf6" maskColor="rgba(0,0,0,0.05)" />
-          </ReactFlow>
-          </div>
-        </NodeCallbacksContext.Provider>
+      {/* Canvas + Side Panel */}
+      <main className="flex-1 flex overflow-hidden" style={{ minHeight: 0 }}>
+        {/* Canvas */}
+        <div className="flex-1 relative overflow-hidden">
+          <NodeCallbacksContext.Provider value={{ onConfigChange: handleConfigChange, onRemove: handleRemoveNode }}>
+            <div style={{ position: 'absolute', inset: 0 }}>
+            <ReactFlow
+              nodes={rfNodes}
+              edges={rfEdges}
+              nodeTypes={nodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onNodeClick={(_evt, node) => setSelectedNodeId(node.id)}
+              onPaneClick={() => setSelectedNodeId(null)}
+              fitView
+              fitViewOptions={{ padding: 0.2 }}
+              defaultEdgeOptions={{ style: { stroke: '#8b5cf6', strokeWidth: 2 } }}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background color="#d1d5db" gap={28} size={1} />
+              <Controls />
+              <MiniMap nodeColor="#8b5cf6" maskColor="rgba(0,0,0,0.05)" />
+            </ReactFlow>
+            </div>
+          </NodeCallbacksContext.Provider>
 
-        {/* Empty state overlay */}
-        {rfNodes.length === 0 && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <p className="text-sm text-muted-foreground">No nodes yet.</p>
-            <p className="text-xs mt-1 text-muted-foreground">Click "+ Add Node" in the header to get started.</p>
-          </div>
-        )}
+          {/* Empty state overlay */}
+          {rfNodes.length === 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <p className="text-sm text-muted-foreground">No nodes yet.</p>
+              <p className="text-xs mt-1 text-muted-foreground">Click "+ Add Node" in the header to get started.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Right side panel — shown when a node is selected */}
+        {selectedNodeId && (() => {
+          const selNode = rfNodes.find((n) => n.id === selectedNodeId);
+          if (!selNode) return null;
+          const nodeData = selNode.data as unknown as AudioSeparationNodeData;
+          return (
+            <NodeSidePanel
+              key={selectedNodeId}
+              nodeId={selectedNodeId}
+              nodeIndex={nodeData.nodeIndex as number}
+              configJson={nodeData.configJson as unknown as string}
+              onConfigChange={handleConfigChange}
+              onClose={() => setSelectedNodeId(null)}
+            />
+          );
+        })()}
       </main>
 
       {/* Save error */}
