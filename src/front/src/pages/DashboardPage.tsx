@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/auth/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { AppHeader } from '@/components/layout/AppHeader';
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { workflowsService } from '@/services/workflowsService';
@@ -43,20 +44,12 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🎵</span>
-            <span className="font-semibold text-foreground">Fluent Audio Split</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">{user?.email}</span>
-            <Button variant="outline" size="sm" onClick={handleLogout}>
-              Sign out
-            </Button>
-          </div>
-        </div>
-      </header>
+      <AppHeader>
+        <span className="text-sm text-muted-foreground">{user?.email}</span>
+        <Button variant="outline" size="sm" onClick={handleLogout}>
+          Sign out
+        </Button>
+      </AppHeader>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="space-y-8">
           <div className="space-y-2">
