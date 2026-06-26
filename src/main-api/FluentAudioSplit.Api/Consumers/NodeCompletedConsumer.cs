@@ -43,6 +43,15 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
             return;
         }
 
+        // Idempotency: NodeCompletedEvent can be redelivered (at-least-once delivery). If this
+        // node was already completed, re-running the chaining logic below would spawn duplicate
+        // downstream executions and duplicate (GPU-expensive) work, so skip the duplicate.
+        if (nodeExec.Status == NodeExecutionStatus.Completed)
+        {
+            _logger.LogInformation("NodeExecution {Id} already completed; skipping duplicate event", msg.NodeExecutionId);
+            return;
+        }
+
         nodeExec.Status = NodeExecutionStatus.Completed;
         nodeExec.OutputArtifactPathsJson = JsonSerializer.Serialize(msg.OutputArtifactPaths);
         nodeExec.OutputArtifactDir = msg.OutputArtifactPaths.Count > 0
@@ -128,6 +137,8 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
         {
             type = "NodeCompleted",
             nodeExecutionId = msg.NodeExecutionId,
+            workflowNodeId = nodeExec.WorkflowNodeId,
+            attempt = nodeExec.Attempt,
             outputArtifactPaths = msg.OutputArtifactPaths
         });
 

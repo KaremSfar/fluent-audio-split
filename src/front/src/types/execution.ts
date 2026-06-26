@@ -27,8 +27,11 @@ export interface WorkflowExecution {
 
 export interface NodeStatusEvent {
   nodeExecutionId: string;
+  // Present on backend SSE events so the client can place an update on the right workflow
+  // node even for a node execution id it has never seen (lazily-created downstream / retry).
+  workflowNodeId?: string;
   status: NodeExecutionStatus;
-  attempt: number;
+  attempt?: number;
   outputPaths?: Record<string, string>;
   errorMessage?: string;
 }

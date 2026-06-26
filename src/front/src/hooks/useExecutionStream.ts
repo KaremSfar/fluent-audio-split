@@ -31,10 +31,15 @@ export function useExecutionStream({
     const token = getToken();
 
     fetchEventSource(`${baseUrl}/api/executions/${executionId}/stream`, {
-      headers: {
-        Authorization: token ? `Bearer ${token}` : '',
-      },
+      // Only send the header when we actually have a token — an empty `Bearer` is malformed.
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       signal: ctrl.signal,
+      async onopen(res) {
+        // Auth failures never recover on retry — stop the loop so the UI can fall back.
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(`SSE unauthorized (${res.status})`);
+        }
+      },
       onmessage(ev) {
         try {
           const data = JSON.parse(ev.data) as Record<string, unknown>;
@@ -43,8 +48,9 @@ export function useExecutionStream({
           if (type === 'NodeStarted' || type === 'NodeCompleted' || type === 'NodeFailed') {
             onNodeStatus({
               nodeExecutionId: data.nodeExecutionId as string,
+              workflowNodeId: data.workflowNodeId as string | undefined,
               status: type === 'NodeStarted' ? 'Running' : type === 'NodeCompleted' ? 'Completed' : 'Failed',
-              attempt: (data.attempt as number) ?? 1,
+              attempt: data.attempt as number | undefined,
               outputPaths: (data.outputArtifactPaths as Record<string, string>) ?? undefined,
               errorMessage: data.errorMessage as string | undefined,
             });
@@ -61,8 +67,9 @@ export function useExecutionStream({
       },
       onerror(err) {
         console.error('SSE error', err);
-        // Rethrow fatal errors (non-CORS, non-network) to stop retrying
-        if (err instanceof TypeError) {
+        // Rethrow fatal errors (auth / programming errors) to stop retrying; transient
+        // network errors fall through and @microsoft/fetch-event-source reconnects.
+        if (err instanceof TypeError || (err instanceof Error && err.message.startsWith('SSE unauthorized'))) {
           throw err; // stops the loop; component can show a static fallback
         }
       },

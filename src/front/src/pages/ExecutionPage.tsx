@@ -6,6 +6,7 @@ import { executionsService } from '@/services/executionsService';
 import { filesService } from '@/services/filesService';
 import { workflowsService } from '@/services/workflowsService';
 import { useExecutionStream } from '@/hooks/useExecutionStream';
+import { applyNodeStatusEvent, upsertNodeExecution } from '@/lib/executionState';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/execution/StatusBadge';
 import { NodeExecutionCard } from '@/components/execution/NodeExecutionCard';
@@ -67,19 +68,9 @@ export default function ExecutionPage() {
     execStatus === 'PartiallyFailed' || execStatus === 'Cancelled';
 
   const onNodeStatus = useCallback((ev: NodeStatusEvent) => {
-    setNodeExecutions((prev) =>
-      prev.map((n) =>
-        n.id === ev.nodeExecutionId
-          ? {
-              ...n,
-              status: ev.status,
-              attempt: ev.attempt ?? n.attempt,
-              errorMessage: ev.errorMessage,
-              outputArtifactPaths: ev.outputPaths ?? n.outputArtifactPaths,
-            }
-          : n
-      )
-    );
+    // Upsert by id, falling back to workflowNodeId so lazily-created downstream nodes and
+    // retried nodes (new ids) are inserted rather than dropped.
+    setNodeExecutions((prev) => applyNodeStatusEvent(prev, ev));
   }, []);
 
   const onExecutionStatus = useCallback((ev: ExecutionStatusEvent) => {
@@ -100,9 +91,9 @@ export default function ExecutionPage() {
     mutationFn: ({ nodeExecutionId }: { nodeExecutionId: string }) =>
       executionsService.retry(id!, nodeExecutionId),
     onSuccess: (updated) => {
-      setNodeExecutions((prev) =>
-        prev.map((n) => (n.id === updated.id ? updated : n))
-      );
+      // Retry creates a new node execution (new id); replace by workflowNodeId so the new
+      // attempt supersedes the old failed row.
+      setNodeExecutions((prev) => upsertNodeExecution(prev, updated));
     },
   });
 

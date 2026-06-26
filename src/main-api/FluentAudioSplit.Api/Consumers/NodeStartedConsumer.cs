@@ -54,6 +54,8 @@ public class NodeStartedConsumer : IConsumer<NodeStartedEvent>
         {
             type = "NodeStarted",
             nodeExecutionId = msg.NodeExecutionId,
+            workflowNodeId = nodeExec.WorkflowNodeId,
+            attempt = nodeExec.Attempt,
             status = "Running"
         });
 

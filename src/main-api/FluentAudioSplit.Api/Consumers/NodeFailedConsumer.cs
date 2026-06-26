@@ -53,6 +53,8 @@ public class NodeFailedConsumer : IConsumer<NodeFailedEvent>
         {
             type = "NodeFailed",
             nodeExecutionId = msg.NodeExecutionId,
+            workflowNodeId = nodeExec.WorkflowNodeId,
+            attempt = nodeExec.Attempt,
             errorMessage = msg.ErrorMessage,
             isTransient = msg.IsTransient
         });

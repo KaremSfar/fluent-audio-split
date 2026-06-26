@@ -1,15 +1,18 @@
 import { memo, useContext, createContext } from 'react';
 import { Handle, Position, useEdges, type NodeProps } from '@xyflow/react';
 import { MODEL_DEFINITIONS, getStemsForModel, STEM_COLORS } from '@/lib/models';
+import { useNowTick } from '@/hooks/useNowTick';
 
 // ── Context for callbacks (avoids storing non-serializable fns in node data) ──
 export interface NodeCallbacks {
   onConfigChange: (nodeId: string, configJson: string) => void;
   onRemove: (nodeId: string) => void;
+  onPlayNode: (nodeId: string) => void;
 }
 export const NodeCallbacksContext = createContext<NodeCallbacks>({
   onConfigChange: () => {},
   onRemove: () => {},
+  onPlayNode: () => {},
 });
 
 export interface AudioSeparationNodeData {
@@ -17,6 +20,15 @@ export interface AudioSeparationNodeData {
   configJson: string;
   isRoot: boolean;
   nodeIndex: number;
+  // Execution overlay (set when an execution is active/loaded)
+  execStatus?: import('@/types/execution').NodeExecutionStatus;
+  execStartedAt?: string;
+  execCompletedAt?: string;
+  execErrorMessage?: string;
+  execAttempt?: number;
+  execOutputPaths?: Record<string, string>;
+  execNodeExecutionId?: string;
+  execCanPlay?: boolean;
 }
 
 export type AudioSeparationRFNode = {
@@ -27,8 +39,15 @@ export type AudioSeparationRFNode = {
 };
 
 function AudioSeparationNode({ data, selected }: NodeProps) {
-  const { nodeId, configJson, isRoot, nodeIndex } = data as unknown as AudioSeparationNodeData;
-  const { onRemove } = useContext(NodeCallbacksContext);
+  const {
+    nodeId, configJson, isRoot, nodeIndex,
+    execStatus, execStartedAt, execCompletedAt, execErrorMessage,
+    execCanPlay,
+  } = data as unknown as AudioSeparationNodeData;
+  const { onRemove, onPlayNode } = useContext(NodeCallbacksContext);
+
+  // The "Running" elapsed time is derived from the wall-clock at render time; tick so it advances.
+  useNowTick(execStatus === 'Running');
 
   const edges = useEdges();
   const connectedStems = new Set(
@@ -46,12 +65,51 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
   const modelDef = MODEL_DEFINITIONS.find((m) => m.value === modelName);
   const arch = modelDef?.arch ?? 'mdxc';
 
-  const borderClass = selected
-    ? 'border-violet-600 ring-2 ring-violet-300'
-    : 'border-violet-400';
+  // ── Execution-aware border & styles ──
+  const borderByStatus: Record<string, string> = {
+    Pending: 'border-slate-300',
+    Queued: 'border-slate-300',
+    Running: 'border-blue-500 ring-2 ring-blue-300',
+    Completed: 'border-green-500',
+    Failed: 'border-red-500',
+    Cancelled: 'border-slate-400',
+  };
+  const baseBorder = execStatus
+    ? borderByStatus[execStatus] ?? 'border-violet-400'
+    : selected
+      ? 'border-violet-600 ring-2 ring-violet-300'
+      : 'border-violet-400';
+
+  // ── Duration helper ──
+  const elapsed = (() => {
+    if (!execStartedAt) return null;
+    const start = new Date(execStartedAt).getTime();
+    const end = execCompletedAt ? new Date(execCompletedAt).getTime() : Date.now();
+    const s = Math.round((end - start) / 1000);
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+  })();
+
+  // ── Status footer config ──
+  const statusFooter: Record<string, { icon: string; label: string; color: string }> = {
+    Pending: { icon: '○', label: 'Pending', color: 'text-slate-400' },
+    Queued: { icon: '○', label: 'Queued', color: 'text-slate-400' },
+    Running: { icon: '⏳', label: 'Running', color: 'text-blue-600' },
+    Completed: { icon: '✅', label: 'Done', color: 'text-green-600' },
+    Failed: { icon: '✗', label: 'Failed', color: 'text-red-600' },
+    Cancelled: { icon: '—', label: 'Cancelled', color: 'text-slate-500' },
+  };
+  const footer = execStatus ? statusFooter[execStatus] : null;
+
+  // ── Play button logic ──
+  const isRunningOrPending = execStatus === 'Running' || execStatus === 'Pending' || execStatus === 'Queued';
+  const showPlay = execCanPlay && !isRunningOrPending;
+  const playLabel = execStatus === 'Failed' ? '↻ Retry' : execStatus === 'Completed' ? '↻ Re-run' : '▶ Run';
 
   return (
-    <div className={`w-64 rounded-xl border-2 ${borderClass} bg-background shadow-lg transition-shadow`} style={{ position: 'relative' }}>
+    <div
+      className={`w-64 rounded-xl border-2 ${baseBorder} bg-background shadow-lg transition-all ${execStatus === 'Running' ? 'animate-pulse-subtle' : ''}`}
+      style={{ position: 'relative' }}
+    >
       {/* Input handle */}
       <Handle
         type="target"
@@ -73,6 +131,16 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
         <span className="text-base">🎛️</span>
         <span className="font-semibold text-xs flex-1 truncate">Node {(nodeIndex as number) + 1}</span>
         <span className="text-[9px] font-mono uppercase bg-violet-400/60 rounded px-1.5 py-0.5">{arch}</span>
+        {/* Play button in header */}
+        {showPlay && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onPlayNode(nodeId as string); }}
+            className="ml-0.5 bg-white/20 hover:bg-white/40 text-white text-[10px] font-medium rounded px-1.5 py-0.5 shrink-0 transition-colors"
+            title={playLabel}
+          >
+            {playLabel}
+          </button>
+        )}
         {!isRoot && (
           <button
             onClick={(e) => { e.stopPropagation(); onRemove(nodeId as string); }}
@@ -95,8 +163,8 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
         )}
       </div>
 
-      {/* Click hint when not selected */}
-      {!selected && (
+      {/* Click hint when not selected and no execution active */}
+      {!selected && !execStatus && (
         <div className="px-3 py-1 border-b border-border/30">
           <p className="text-[9px] text-muted-foreground/50 italic text-center">click to configure</p>
         </div>
@@ -138,6 +206,22 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
           );
         })}
       </div>
+
+      {/* ── Execution status footer ── */}
+      {footer && (
+        <div className={`border-t border-border/50 px-3 py-1.5 flex items-center gap-2 ${footer.color}`}>
+          <span className="text-sm">{footer.icon}</span>
+          <span className="text-xs font-medium">{footer.label}</span>
+          {elapsed && <span className="text-[10px] text-muted-foreground ml-auto">{elapsed}</span>}
+        </div>
+      )}
+
+      {/* Failed error snippet */}
+      {execStatus === 'Failed' && execErrorMessage && (
+        <div className="px-3 pb-2">
+          <p className="text-[9px] text-red-500 truncate" title={execErrorMessage}>{execErrorMessage}</p>
+        </div>
+      )}
     </div>
   );
 }
