@@ -236,13 +236,34 @@ public class WorkflowsController : ControllerBase
         return Ok(new WorkflowExecutionDto(
             execution.Id,
             execution.WorkflowId,
+            execution.WorkflowVersionId,
             workflow.Name,
             new FileRecordDto(fileRecord.Id, fileRecord.OriginalFileName, fileRecord.ContentType, fileRecord.SizeBytes, fileRecord.CreatedAt),
             execution.Status.ToString(),
-            nodeExecs.Select(ne => new NodeExecutionDto(ne.Id, ne.WorkflowNodeId, ne.Attempt, ne.Status.ToString(), ne.OutputArtifactDir, ne.OutputArtifactPathsJson != null ? JsonSerializer.Deserialize<Dictionary<string, string>>(ne.OutputArtifactPathsJson) ?? new() : new(), ne.ErrorMessage, ne.StartedAt, ne.CompletedAt)).ToList(),
+            nodeExecs.Select(ne =>
+            {
+                var def = rootNodes.FirstOrDefault(n => n.Id == ne.WorkflowNodeId);
+                return new NodeExecutionDto(
+                    ne.Id, ne.WorkflowNodeId, ne.Attempt, ne.Status.ToString(), ne.OutputArtifactDir,
+                    ne.OutputArtifactPathsJson != null ? JsonSerializer.Deserialize<Dictionary<string, string>>(ne.OutputArtifactPathsJson) ?? new() : new(),
+                    ne.ErrorMessage, ne.StartedAt, ne.CompletedAt,
+                    def != null ? $"Node {def.Order + 1}" : null,
+                    def != null ? ExtractModelName(def.ConfigJson) : null);
+            }).ToList(),
             execution.CreatedAt,
             execution.CompletedAt,
             execution.ErrorMessage));
+    }
+
+    private static string? ExtractModelName(string? configJson)
+    {
+        if (string.IsNullOrWhiteSpace(configJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(configJson);
+            return doc.RootElement.TryGetProperty("modelName", out var m) ? m.GetString() : null;
+        }
+        catch { return null; }
     }
 
     private static List<WorkflowNodeDefinition> DeserializeNodes(string json) =>

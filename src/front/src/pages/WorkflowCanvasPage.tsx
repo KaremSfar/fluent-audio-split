@@ -220,7 +220,8 @@ export default function WorkflowCanvasPage() {
       // refetch explicitly — backfilling any node executions, outputs or server timestamps
       // that were missed over the stream.
       const execId = activeExecution?.id;
-      if (execId && (ev.status === 'Completed' || ev.status === 'PartiallyFailed')) {
+      if (execId && (ev.status === 'Completed' || ev.status === 'PartiallyFailed' ||
+                     ev.status === 'Failed' || ev.status === 'Cancelled')) {
         executionsService
           .get(execId)
           .then((fresh) => {
@@ -503,6 +504,16 @@ export default function WorkflowCanvasPage() {
     },
   });
 
+  // ── Cancel the active execution ──────────────────────────────────────────
+  const cancelMutation = useMutation({
+    mutationFn: () => executionsService.cancel(activeExecution!.id),
+    onSuccess: (updated) => {
+      setActiveExecution(updated);
+      setNodeExecutions(updated.nodeExecutions);
+      setExecStatus(updated.status);
+    },
+  });
+
   // ── Retry a specific failed node ─────────────────────────────────────────
   const retryMutation = useMutation({
     mutationFn: ({ nodeExecutionId }: { nodeExecutionId: string }) =>
@@ -512,6 +523,11 @@ export default function WorkflowCanvasPage() {
       // replace by workflowNodeId so the new attempt supersedes the old failed row and its
       // subsequent SSE events (keyed on the new id) land on it.
       setNodeExecutions((prev) => upsertNodeExecution(prev, updated));
+      // The retry endpoint moves the execution back to Running server-side. Reset the local
+      // status so it's no longer terminal, which re-enables the SSE stream — otherwise a retry
+      // triggered from a terminal (Failed/PartiallyFailed) run would complete on the server but
+      // never stream its progress back to the canvas.
+      setExecStatus('Running');
     },
   });
 
@@ -576,6 +592,8 @@ export default function WorkflowCanvasPage() {
               variant="outline"
               size="sm"
               onClick={handleAddNode}
+              disabled={isRunning}
+              title={isRunning ? 'Editing is disabled while an execution is running' : undefined}
             >
               + Add Node
             </Button>
@@ -583,7 +601,8 @@ export default function WorkflowCanvasPage() {
               variant="outline"
               size="sm"
               onClick={() => saveMutation.mutate()}
-              disabled={saveMutation.isPending || saved}
+              disabled={saveMutation.isPending || saved || isRunning}
+              title={isRunning ? 'Saving is disabled while an execution is running' : undefined}
             >
               {saveMutation.isPending ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
             </Button>
@@ -594,6 +613,16 @@ export default function WorkflowCanvasPage() {
             >
               ⚡ Execute
             </Button>
+            {isRunning && activeExecution && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => cancelMutation.mutate()}
+                disabled={cancelMutation.isPending}
+              >
+                {cancelMutation.isPending ? 'Cancelling…' : '⨯ Cancel'}
+              </Button>
+            )}
             {activeExecution && !isRunning && (
               <Button
                 variant="outline"

@@ -132,6 +132,9 @@ export function ExecutionDrawer({
         {nodeExecutions.map((node) => {
           const wfNode = nodeMap.get(node.workflowNodeId);
           const modelName = (() => {
+            // Prefer the model resolved server-side from the executed version, so nodes that no
+            // longer exist in the latest version still show their real model instead of "Node".
+            if (node.modelName) return node.modelName.replace('.yaml', '').replace('.onnx', '');
             if (!wfNode) return null;
             try {
               const cfg = JSON.parse(wfNode.configJson);
@@ -146,7 +149,7 @@ export function ExecutionDrawer({
               {/* Node label */}
               <div className="w-36 shrink-0 truncate">
                 <span className="font-medium">
-                  {wfNode ? `Node ${wfNode.order + 1}` : 'Node'}
+                  {node.nodeLabel ?? (wfNode ? `Node ${wfNode.order + 1}` : 'Node')}
                 </span>
                 {modelName && (
                   <span className="ml-1.5 text-xs text-muted-foreground">({modelName})</span>

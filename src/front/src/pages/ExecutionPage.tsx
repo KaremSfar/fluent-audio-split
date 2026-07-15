@@ -21,7 +21,11 @@ import type { WorkflowNode } from '@/types/workflow';
 
 function formatTime(iso?: string): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString();
+  // Include the date, not just the time — executions can span midnight, and a time-only display
+  // makes a next-day completion look like it finished before it started.
+  return new Date(iso).toLocaleString([], {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
 }
 
 export default function ExecutionPage() {
@@ -75,7 +79,8 @@ export default function ExecutionPage() {
 
   const onExecutionStatus = useCallback((ev: ExecutionStatusEvent) => {
     setExecStatus(ev.status);
-    if (ev.status === 'Completed' || ev.status === 'PartiallyFailed') {
+    if (ev.status === 'Completed' || ev.status === 'PartiallyFailed' ||
+        ev.status === 'Failed' || ev.status === 'Cancelled') {
       queryClient.invalidateQueries({ queryKey: ['execution', id] });
     }
   }, [id, queryClient]);
@@ -94,6 +99,19 @@ export default function ExecutionPage() {
       // Retry creates a new node execution (new id); replace by workflowNodeId so the new
       // attempt supersedes the old failed row.
       setNodeExecutions((prev) => upsertNodeExecution(prev, updated));
+      // The retry endpoint puts the execution back into Running server-side. Reset the local
+      // status so it's no longer treated as terminal — otherwise the SSE stream stays gated off
+      // and the retry's live progress (and its terminal event) would be missed.
+      setExecStatus('Running');
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: () => executionsService.cancel(id!),
+    onSuccess: (updated) => {
+      setExecStatus(updated.status);
+      setNodeExecutions(updated.nodeExecutions);
+      queryClient.invalidateQueries({ queryKey: ['execution', id] });
     },
   });
 
@@ -129,6 +147,16 @@ export default function ExecutionPage() {
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold tracking-tight">{execution.workflowName}</h1>
             <StatusBadge status={currentStatus} />
+            {(currentStatus === 'Running' || currentStatus === 'Pending') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => cancelMutation.mutate()}
+                disabled={cancelMutation.isPending}
+              >
+                {cancelMutation.isPending ? 'Cancelling…' : '⨯ Cancel'}
+              </Button>
+            )}
           </div>
           <p className="text-muted-foreground text-sm">
             File: <span className="font-medium text-foreground">{execution.inputFile.originalFileName}</span>

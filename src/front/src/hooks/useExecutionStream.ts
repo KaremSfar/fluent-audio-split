@@ -54,12 +54,18 @@ export function useExecutionStream({
               outputPaths: (data.outputArtifactPaths as Record<string, string>) ?? undefined,
               errorMessage: data.errorMessage as string | undefined,
             });
-          } else if (type === 'ExecutionRunning' || type === 'ExecutionCompleted' || type === 'ExecutionPartiallyFailed') {
-            onExecutionStatus({
-              status: type === 'ExecutionCompleted' ? 'Completed'
-                : type === 'ExecutionRunning' ? 'Running'
-                : 'PartiallyFailed',
-            });
+          } else if (
+            type === 'ExecutionRunning' || type === 'ExecutionCompleted' ||
+            type === 'ExecutionPartiallyFailed' || type === 'ExecutionFailed' ||
+            type === 'ExecutionCancelled'
+          ) {
+            const status =
+              type === 'ExecutionCompleted' ? 'Completed'
+              : type === 'ExecutionRunning' ? 'Running'
+              : type === 'ExecutionFailed' ? 'Failed'
+              : type === 'ExecutionCancelled' ? 'Cancelled'
+              : 'PartiallyFailed';
+            onExecutionStatus({ status });
           }
         } catch (e) {
           console.error('SSE parse error', e);

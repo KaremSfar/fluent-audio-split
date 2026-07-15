@@ -1,11 +1,33 @@
 using FluentAudioSplit.Domain.Entities;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace FluentAudioSplit.Infrastructure.Persistence;
 
 public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
 {
+    // SQLite stores DateTime as text without timezone info, so values round-trip with
+    // DateTimeKind.Unspecified. System.Text.Json then serializes them WITHOUT a 'Z', and the
+    // browser interprets them as local time — shifting every timestamp by the viewer's offset.
+    // These converters guarantee everything is written and read back as UTC (Kind=Utc) so the
+    // API always emits proper ISO-8601 'Z' timestamps.
+    private sealed class UtcDateTimeConverter : ValueConverter<DateTime, DateTime>
+    {
+        public UtcDateTimeConverter() : base(
+            v => v.Kind == DateTimeKind.Utc ? v : v.ToUniversalTime(),
+            v => DateTime.SpecifyKind(v, DateTimeKind.Utc))
+        { }
+    }
+
+    private sealed class UtcNullableDateTimeConverter : ValueConverter<DateTime?, DateTime?>
+    {
+        public UtcNullableDateTimeConverter() : base(
+            v => v.HasValue ? (v.Value.Kind == DateTimeKind.Utc ? v.Value : v.Value.ToUniversalTime()) : v,
+            v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v)
+        { }
+    }
+
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : base(options) { }
 
@@ -71,5 +93,12 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         {
             e.HasKey(ne => ne.Id);
         });
+    }
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder builder)
+    {
+        base.ConfigureConventions(builder);
+        builder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+        builder.Properties<DateTime?>().HaveConversion<UtcNullableDateTimeConverter>();
     }
 }

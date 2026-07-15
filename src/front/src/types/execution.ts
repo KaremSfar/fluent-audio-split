@@ -11,11 +11,16 @@ export interface NodeExecution {
   errorMessage?: string;
   startedAt?: string;
   completedAt?: string;
+  // Resolved server-side from the version the execution ran against, so the label survives
+  // later edits to the workflow (which mint new node ids in a new version).
+  nodeLabel?: string;
+  modelName?: string;
 }
 
 export interface WorkflowExecution {
   id: string;
   workflowId: string;
+  workflowVersionId: string;
   workflowName: string;
   inputFile: import('./file').FileRecord;
   status: WorkflowExecutionStatus;

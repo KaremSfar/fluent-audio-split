@@ -18,6 +18,10 @@ export const executionsService = {
     const { data } = await apiClient.post<NodeExecution>(`/executions/${executionId}/nodes/${nodeExecutionId}/retry`);
     return data;
   },
+  cancel: async (executionId: string): Promise<WorkflowExecution> => {
+    const { data } = await apiClient.post<WorkflowExecution>(`/executions/${executionId}/cancel`);
+    return data;
+  },
   getResults: async (executionId: string): Promise<string[]> => {
     const { data } = await apiClient.get<string[]>(`/executions/${executionId}/results`);
     return data;

@@ -113,6 +113,28 @@ retry of a node that already spawned children could still create duplicate downs
   `useExecutionStream.ts` (dev uses `:8080`, prod uses the `:8765` gateway). Align or drop it.
 - Vite bundle > 500 kB — consider route-level code splitting.
 
+## 8. Transient remote-error classification + auto-retry (LOW/MEDIUM)
+
+**Where:** `src/audio-separation-worker/app/handlers.py` (`is_transient=isinstance(e, OSError)`),
+`src/audio-separation-worker/app/separator.py` (`RemoteAudioSeparator` wraps remote failures as
+`RuntimeError`).
+
+**Problem:** Remote separation failures are surfaced as a generic `RuntimeError("Remote separation
+failed: …")`, so the worker's `is_transient` heuristic (`isinstance(e, OSError)`) is always `False`
+for remote runs — even when the underlying cause is clearly transient. Observed live: an ensemble
+Roformer node failed once on Modal with `Failed to instantiate Roformer model: [Errno 22] Invalid
+argument` (a cold model-download/caching race on the Modal `/models` volume) and then **succeeded on
+a manual retry with no changes**. Combined with `isTransient` being computed-but-unused (no auto
+retry/backoff anywhere), a transient cold-cache blip becomes a hard node failure that requires a
+manual click.
+
+**Fix options:**
+- (worker) Classify remote errors: parse/propagate the remote error so obviously-transient causes
+  (`[Errno 22]`, `instantiate … model`, timeouts, 5xx) set `is_transient=True`.
+- (worker/engine) Add a bounded auto-retry-with-backoff for transient node failures (e.g. 2–3
+  attempts) so cold-start blips self-heal without user intervention. Tie into the retry path that
+  already creates a new `NodeExecution` (attempt+1).
+
 ---
 
 ## Done (this branch)

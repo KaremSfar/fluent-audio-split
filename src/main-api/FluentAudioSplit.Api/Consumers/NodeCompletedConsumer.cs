@@ -73,6 +73,23 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
             return;
         }
 
+        // If the user cancelled the execution while this node was mid-flight, record the node's
+        // output but do NOT spawn downstream work or resurrect a terminal execution.
+        if (workflowExec.Status == WorkflowExecutionStatus.Cancelled)
+        {
+            _logger.LogInformation(
+                "WorkflowExecution {Id} is cancelled; not chaining downstream nodes", msg.WorkflowExecutionId);
+            await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
+            {
+                type = "NodeCompleted",
+                nodeExecutionId = msg.NodeExecutionId,
+                workflowNodeId = nodeExec.WorkflowNodeId,
+                attempt = nodeExec.Attempt,
+                outputArtifactPaths = msg.OutputArtifactPaths
+            });
+            return;
+        }
+
         var nodeDefs = JsonSerializer.Deserialize<List<WorkflowNodeDefinition>>(
             workflowExec.WorkflowVersion.StructureJson) ?? new();
 
@@ -118,21 +135,6 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
         // Reload to get freshly added node executions
         await db.Entry(workflowExec).Collection(we => we.NodeExecutions).LoadAsync(ct);
 
-        var allNodeIds = nodeDefs.Select(n => n.Id).ToHashSet();
-        var completedNodeIds = workflowExec.NodeExecutions
-            .Where(ne => ne.Status == NodeExecutionStatus.Completed)
-            .Select(ne => ne.WorkflowNodeId)
-            .ToHashSet();
-
-        var allCompleted = allNodeIds.All(id => completedNodeIds.Contains(id));
-
-        if (allCompleted)
-        {
-            workflowExec.Status = WorkflowExecutionStatus.Completed;
-            workflowExec.CompletedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync(ct);
-        }
-
         await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
         {
             type = "NodeCompleted",
@@ -142,11 +144,16 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
             outputArtifactPaths = msg.OutputArtifactPaths
         });
 
-        if (workflowExec.Status == WorkflowExecutionStatus.Completed)
+        // Settle the execution only once nothing is still in flight. Any downstream nodes queued
+        // just above keep it Running; when the final leaf completes the reconciler returns the
+        // terminal status so we emit exactly one terminal event.
+        var terminal = await ExecutionReconciler.ReconcileAsync(db, msg.WorkflowExecutionId, ct);
+
+        if (terminal is not null)
         {
             await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
             {
-                type = "ExecutionCompleted",
+                type = ExecutionReconciler.ToEventType(terminal.Value),
                 workflowExecutionId = msg.WorkflowExecutionId
             });
         }

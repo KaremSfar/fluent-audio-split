@@ -36,12 +36,17 @@ export function NodeExecutionCard({
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-base">
-            {workflowNode ? `Node ${workflowNode.order + 1}` : 'Audio Separation'}
-            {workflowNode && (() => {
-              try {
-                const cfg = JSON.parse(workflowNode.configJson);
-                return cfg.modelName ? <span className="ml-2 text-sm font-normal text-muted-foreground">({cfg.modelName.replace('.yaml', '')})</span> : null;
-              } catch { return null; }
+            {node.nodeLabel ?? (workflowNode ? `Node ${workflowNode.order + 1}` : 'Audio Separation')}
+            {(() => {
+              // Prefer the model name resolved server-side from the executed version; fall back
+              // to the latest workflow node's config only when the server didn't provide one.
+              let modelName = node.modelName ?? null;
+              if (!modelName && workflowNode) {
+                try { modelName = JSON.parse(workflowNode.configJson).modelName ?? null; } catch { modelName = null; }
+              }
+              return modelName
+                ? <span className="ml-2 text-sm font-normal text-muted-foreground">({modelName.replace('.yaml', '')})</span>
+                : null;
             })()}
           </CardTitle>
           <div className="flex items-center gap-2">
