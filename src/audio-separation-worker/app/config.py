@@ -19,6 +19,12 @@ SHARED_DATA_PATH = os.getenv("SHARED_DATA_PATH", "/data")
 
 MODEL_FILE_DIR = os.getenv("AUDIO_SEPARATOR_MODEL_DIR", "/models")
 
+# Number of concurrent consumer threads pulling from the "process-node" queue.
+# Each thread owns its own broker connection/channel, so sibling nodes of a
+# forked workflow graph (fanned out by NodeCompletedConsumer) can be picked up
+# and processed in parallel instead of queueing behind a single-threaded loop.
+WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "3"))
+
 # Remote audio separator API (if set, worker delegates separation to remote server)
 AUDIO_SEPARATOR_API_URL = os.getenv("AUDIO_SEPARATOR_API_URL", "")
 AUDIO_SEPARATOR_API_KEY = os.getenv("AUDIO_SEPARATOR_API_KEY", "")

@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from pathlib import Path
 
 from app.publisher import publish_node_completed, publish_node_failed, publish_node_started
@@ -9,6 +10,11 @@ from app.validation import SeparationValidator
 
 logger = logging.getLogger("worker.handlers")
 
+# Matches the audio-separator SDK's default output filename pattern:
+# "{audio_base}_({stem_name})_{model_name}.{ext}" — used as a fallback when the
+# SDK didn't apply our custom output name (see _fuzzy_normalize below).
+_DEFAULT_NAME_STEM_RE = re.compile(r"\(([^)]+)\)")
+
 
 def _normalize_stem_name(stem: str) -> str:
     """Normalize a stem name to snake_case for use in filenames.
@@ -17,6 +23,19 @@ def _normalize_stem_name(stem: str) -> str:
               "Drum-Bass" → "drum_bass", "HH" → "hh"
     """
     return stem.lower().replace(" ", "_").replace("-", "_")
+
+
+def _fuzzy_normalize(stem: str) -> str:
+    """Normalize a stem name for loose comparison: lowercase, strip spaces/hyphens/underscores.
+
+    The audio-separator SDK matches our custom output names against its own internal
+    primary/secondary stem names (from the model's training config) using a lowercase-only
+    comparison — it does NOT strip whitespace. Some models declare stems like "No Reverb"
+    while their internal instrument name is literally "noreverb" (no space), which makes the
+    SDK's exact match fail and fall back to its own default filename. This looser comparison
+    is used only as a fallback to recover those otherwise-dropped stems.
+    """
+    return stem.lower().replace(" ", "").replace("-", "").replace("_", "")
 
 
 def handle_process_node(payload: dict, storage: FileStorageProvider) -> None:
@@ -50,11 +69,15 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
     output_names: dict[str, str] = {}
     # Strict reverse map: normalized output filename → canonical stem name
     reverse_map: dict[str, str] = {}
+    # Fuzzy fallback map: loosely-normalized canonical stem name → canonical stem name.
+    # Used when the SDK didn't apply our custom output name (see _fuzzy_normalize).
+    fuzzy_reverse_map: dict[str, str] = {}
 
     for stem in stems:
         normalized = f"{_normalize_stem_name(stem)}_{exec_prefix}"
         output_names[stem] = normalized
         reverse_map[normalized] = stem
+        fuzzy_reverse_map[_fuzzy_normalize(stem)] = stem
 
     try:
         model_name = config.get("modelName")
@@ -105,9 +128,29 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
             except ValueError:
                 rel = str(Path(output_dir) / p.name)
 
-            # Strict match: look up exact normalized filename in reverse map
+            # Strict match: look up exact normalized filename in reverse map. This is the
+            # expected path when the SDK applied our custom output name.
             file_stem = p.stem
             matched = reverse_map.get(file_stem)
+
+            if not matched:
+                # Fallback: the SDK didn't apply our custom name (e.g. because its internal
+                # stem name differs from ours only in spacing/casing) and fell back to its own
+                # default pattern "{audio_base}_({stem_name})_{model_name}.{ext}". Extract the
+                # parenthesized stem hint and compare it loosely against our canonical stems,
+                # so the output isn't silently dropped.
+                name_match = _DEFAULT_NAME_STEM_RE.search(p.name)
+                if name_match:
+                    candidate = fuzzy_reverse_map.get(_fuzzy_normalize(name_match.group(1)))
+                    if candidate and candidate not in output_map:
+                        matched = candidate
+                        logger.info(
+                            "Output file '%s' matched stem '%s' via fuzzy fallback "
+                            "(no exact match; SDK likely used its own default naming).",
+                            p.name,
+                            candidate,
+                        )
+
             if matched:
                 output_map[matched] = rel
             else:
