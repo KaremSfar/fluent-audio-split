@@ -133,18 +133,20 @@ flowchart LR
 ]
 ```
 
-### The model→stems registry (duplicated 3×)
+### The model→stems registry
 
-The mapping of *model filename → stems it produces* exists in **three** places that must be kept in sync by hand:
+The mapping of *model filename → stems it produces* exists in **three** places:
 
 | Location | Form | Used for |
 |---|---|---|
 | `src/front/src/lib/models.ts` | `MODEL_DEFINITIONS` (150+ models, categories, ensemble presets) | Model browser UI, stem handles |
 | `src/main-api/.../Domain/Models/StemDefinitions.cs` | `ModelStems` | API-side stem awareness |
-| `src/audio-separation-worker/app/models.py` | `MODEL_STEMS` | Worker output naming/validation |
+| `src/audio-separation-worker/app/model_registry.json` | per-model `stems` + `stem_map` | Worker output naming — **single source of truth for the worker**, generated offline by actually resolving each model's real audio-separator SDK-internal stem name(s) (see `build_model_registry.py` in the separate `audio-sep` exploration repo), not hand-written |
 
-> ⚠️ These drift easily. As of now the TS list is far larger than the C#/Python ones — see
-> [Robustness](#robustness--known-limitations).
+> ⚠️ `models.ts`/`StemDefinitions.cs` are still maintained by hand and can drift from each other (the TS list is
+> far larger — see [Robustness](#robustness--known-limitations)). The worker no longer trusts either at
+> runtime, though: it looks up `model_registry.json` by model filename and **fails the node with no fallback**
+> if a model is missing or not yet resolved there, instead of guessing stems from `configJson`.
 
 ---
 

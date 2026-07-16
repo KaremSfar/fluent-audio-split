@@ -22,8 +22,10 @@ src/audio-separation-worker/
 ├── requirements.txt
 ├── run_consumer.py             ← Entry point for the kombu consumer
 └── app/
-    ├── validation.py           ← SeparationValidator (validates models, stems, params)
-    ├── handlers.py             ← ProcessNodeCommand dispatch + _handle_audio_separation
+    ├── model_registry.json      ← Single source of truth: model → stems + stem_map (SDK-real names)
+    ├── model_registry.py        ← get_model_entry(modelName) — loads/validates registry, no fallback
+    ├── validation.py            ← SeparationValidator (advancedParams keys only)
+    ├── handlers.py              ← ProcessNodeCommand dispatch + _handle_audio_separation
     ├── consumer.py             ← MassTransitConsumer (kombu ConsumerMixin)
     ├── publisher.py            ← publish_node_started/completed/failed
     ├── storage.py              ← FileStorageProvider / LocalFileStorageProvider
@@ -36,17 +38,26 @@ src/audio-separation-worker/
 ## Message Flow
 1. C# API publishes `ProcessNodeCommand` to `process-node` fanout exchange
 2. `MassTransitConsumer` receives, extracts envelope, calls `handle_process_node()`
-3. `_handle_audio_separation()` resolves model, calls `Separator.separate()` with `output_names={stem: stem, ...}`
-4. Builds `output_map: dict[str, str]` mapping stem name → relative file path
+3. `_handle_audio_separation()` calls `get_model_entry(modelName)` (raises, no fallback, if unknown/unresolved),
+   then calls `Separator.separate()` with `output_names` keyed by the model's REAL SDK-internal stem names
+   (from the registry's `stem_map`) so the SDK is guaranteed to apply them
+4. Builds `output_map: dict[str, str]` mapping declared/display stem name → relative file path (exact reverse
+   lookup via the same `stem_map` — no fuzzy filename matching)
 5. Publishes `NodeCompletedEvent` with `outputArtifactPaths` dict
 
-## Validation (app/validation.py)
-`SeparationValidator` validates incoming `ProcessNodeCommand` messages before separation:
-- `_validate_models()` — checks model filenames are recognized by the audio-separator catalog
-- `_validate_stems()` — ensures requested stems exist for the model
-- `_validate_params()` — filters/validates advanced params; key sets: `_COMMON_KEYS`, `_MDX_KEYS`, `_VR_KEYS`, `_DEMUCS_KEYS`, `_MDXC_KEYS`
+## Model Registry (app/model_registry.json + app/model_registry.py)
+Single source of truth for model → stems, generated offline (not by this repo) by actually resolving each
+model's real SDK-internal stem name(s) instead of hand-writing them — see `build_model_registry.py` in the
+separate `audio-sep` exploration repo. Root cause this replaced: the SDK's `get_stem_output_path()` matches
+custom output names against its own internal stem name using a lowercase-ONLY comparison (no whitespace
+stripping); some models declare stems like "No Reverb" while the real internal name is literally "noreverb"
+(no space), which used to silently drop that stem's output. `get_model_entry()` raises `ValueError` —
+intentionally no fallback — if a model is missing or not `status: "ok"`.
 
-**Note**: `models.py` was removed. The worker no longer maintains its own `MODEL_STEMS` dict — model validation is done against the audio-separator library catalog at runtime. Model stem definitions are maintained in `StemDefinitions.cs` (API) and `models.ts` (frontend).
+## Validation (app/validation.py)
+`SeparationValidator` now only sanity-checks `advancedParams` keys (`_validate_params()`, key sets:
+`_COMMON_KEYS`, `_MDX_KEYS`, `_VR_KEYS`, `_DEMUCS_KEYS`, `_MDXC_KEYS`) and logs (doesn't raise) on unknown keys.
+Model/stem existence validation moved to `model_registry.py` (no live SDK catalog network call anymore).
 
 ## Separator Abstraction (app/separator.py)
 - `AudioSeparator` — ABC with `separate(input_path, output_dir, model_name, output_names, extra_models?, ensemble_algorithm?, advanced_params?) → list[str]`

@@ -1,8 +1,8 @@
 import json
 import logging
-import re
 from pathlib import Path
 
+from app.model_registry import get_model_entry
 from app.publisher import publish_node_completed, publish_node_failed, publish_node_started
 from app.separator import create_audio_separator
 from app.storage import FileStorageProvider
@@ -10,32 +10,14 @@ from app.validation import SeparationValidator
 
 logger = logging.getLogger("worker.handlers")
 
-# Matches the audio-separator SDK's default output filename pattern:
-# "{audio_base}_({stem_name})_{model_name}.{ext}" — used as a fallback when the
-# SDK didn't apply our custom output name (see _fuzzy_normalize below).
-_DEFAULT_NAME_STEM_RE = re.compile(r"\(([^)]+)\)")
 
-
-def _normalize_stem_name(stem: str) -> str:
+def _slug(stem: str) -> str:
     """Normalize a stem name to snake_case for use in filenames.
 
     Examples: "Vocals" → "vocals", "No Reverb" → "no_reverb",
               "Drum-Bass" → "drum_bass", "HH" → "hh"
     """
     return stem.lower().replace(" ", "_").replace("-", "_")
-
-
-def _fuzzy_normalize(stem: str) -> str:
-    """Normalize a stem name for loose comparison: lowercase, strip spaces/hyphens/underscores.
-
-    The audio-separator SDK matches our custom output names against its own internal
-    primary/secondary stem names (from the model's training config) using a lowercase-only
-    comparison — it does NOT strip whitespace. Some models declare stems like "No Reverb"
-    while their internal instrument name is literally "noreverb" (no space), which makes the
-    SDK's exact match fail and fall back to its own default filename. This looser comparison
-    is used only as a fallback to recover those otherwise-dropped stems.
-    """
-    return stem.lower().replace(" ", "").replace("-", "").replace("_", "")
 
 
 def handle_process_node(payload: dict, storage: FileStorageProvider) -> None:
@@ -62,23 +44,6 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
     output_dir = payload["outputArtifactDir"]
     config = json.loads(payload.get("configJson", "{}"))
 
-    stems: list[str] = config.get("stems") or ["Vocals", "Instrumental"]
-
-    # Build deterministic output filenames: {stem_normalized}_{execId[:5]}
-    exec_prefix = node_execution_id[:5]
-    output_names: dict[str, str] = {}
-    # Strict reverse map: normalized output filename → canonical stem name
-    reverse_map: dict[str, str] = {}
-    # Fuzzy fallback map: loosely-normalized canonical stem name → canonical stem name.
-    # Used when the SDK didn't apply our custom output name (see _fuzzy_normalize).
-    fuzzy_reverse_map: dict[str, str] = {}
-
-    for stem in stems:
-        normalized = f"{_normalize_stem_name(stem)}_{exec_prefix}"
-        output_names[stem] = normalized
-        reverse_map[normalized] = stem
-        fuzzy_reverse_map[_fuzzy_normalize(stem)] = stem
-
     try:
         model_name = config.get("modelName")
         if not model_name:
@@ -87,6 +52,45 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
                 "Specify a valid audio-separator model filename (e.g. 'htdemucs_ft.yaml', "
                 "'UVR-MDX-NET-Inst_HQ_3.onnx')."
             )
+
+        ensemble_enabled: bool = config.get("ensembleEnabled") is True
+        ensemble_models: list[str] = config.get("ensembleModels") or []
+        ensemble_algorithm: str = config.get("ensembleMethod", "avg_wave")
+        advanced_params: dict | None = config.get("advancedParams") or None
+
+        # model_registry.json is the single source of truth for model -> stems.
+        # config.get("stems") from the front-end is intentionally ignored — no
+        # fallback: an unknown/unresolved model fails the node immediately.
+        model_entry = get_model_entry(model_name)
+        for extra in ensemble_models if ensemble_enabled else []:
+            get_model_entry(extra)  # existence check only; raises if unknown
+
+        exec_prefix = node_execution_id[:5]
+        output_names: dict[str, str] = {}
+        # desired output filename -> declared/display stem name (for output_map)
+        reverse_map: dict[str, str] = {}
+
+        if ensemble_enabled:
+            # The SDK's ensemble path groups per-model stems into canonical bucket
+            # names (Vocals/Instrumental/etc, see STEM_NAME_MAP in the SDK) BEFORE
+            # applying custom_output_names — it never compares against any single
+            # model's real internal stem name. Declared/canonical names are
+            # already correct here; the per-model stem_map indirection below is
+            # only needed (and only correct) for the single-model path.
+            for stem in model_entry["stems"]:
+                normalized = f"{_slug(stem)}_{exec_prefix}"
+                output_names[stem] = normalized
+                reverse_map[normalized] = stem
+        else:
+            # stem_map pairs our declared/display stem name with the SDK's real
+            # internal stem name for this exact model (pre-resolved once, offline,
+            # in model_registry.json) — guarantees the SDK applies our custom name
+            # with no runtime guessing.
+            for declared, real in model_entry["stem_map"].items():
+                normalized = f"{_slug(declared)}_{exec_prefix}"
+                output_names[real] = normalized
+                reverse_map[normalized] = declared
+
         abs_input = storage.get_absolute_path(input_path)
         abs_output_dir = storage.get_absolute_path(output_dir)
         abs_output_dir.mkdir(parents=True, exist_ok=True)
@@ -95,18 +99,7 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
             "Separating %s with model %s → %s", abs_input, model_name, abs_output_dir
         )
 
-        ensemble_enabled: bool = config.get("ensembleEnabled") is True
-        ensemble_models: list[str] = config.get("ensembleModels") or []
-        ensemble_algorithm: str = config.get("ensembleMethod", "avg_wave")
-        advanced_params: dict | None = config.get("advancedParams") or None
-
-        validator = SeparationValidator()
-        validator.validate(
-            model_name,
-            stems=stems,
-            extra_models=ensemble_models if ensemble_enabled else None,
-            advanced_params=advanced_params,
-        )
+        SeparationValidator().validate(advanced_params)
 
         publish_node_started(workflow_execution_id, node_execution_id)
 
@@ -128,35 +121,12 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
             except ValueError:
                 rel = str(Path(output_dir) / p.name)
 
-            # Strict match: look up exact normalized filename in reverse map. This is the
-            # expected path when the SDK applied our custom output name.
-            file_stem = p.stem
-            matched = reverse_map.get(file_stem)
-
-            if not matched:
-                # Fallback: the SDK didn't apply our custom name (e.g. because its internal
-                # stem name differs from ours only in spacing/casing) and fell back to its own
-                # default pattern "{audio_base}_({stem_name})_{model_name}.{ext}". Extract the
-                # parenthesized stem hint and compare it loosely against our canonical stems,
-                # so the output isn't silently dropped.
-                name_match = _DEFAULT_NAME_STEM_RE.search(p.name)
-                if name_match:
-                    candidate = fuzzy_reverse_map.get(_fuzzy_normalize(name_match.group(1)))
-                    if candidate and candidate not in output_map:
-                        matched = candidate
-                        logger.info(
-                            "Output file '%s' matched stem '%s' via fuzzy fallback "
-                            "(no exact match; SDK likely used its own default naming).",
-                            p.name,
-                            candidate,
-                        )
-
+            matched = reverse_map.get(p.stem)
             if matched:
                 output_map[matched] = rel
             else:
                 logger.warning(
-                    "Output file '%s' did not strictly match any expected stem. "
-                    "Expected one of: %s",
+                    "Output file '%s' did not match any expected stem name. Expected one of: %s",
                     p.name,
                     list(reverse_map.keys()),
                 )
@@ -172,3 +142,4 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
             str(e),
             is_transient=isinstance(e, OSError),
         )
+
