@@ -103,53 +103,9 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
 
         foreach (var downstream in downstreamNodes)
         {
-            // If this downstream node expects a specific parent stem that the parent didn't
-            // actually produce (e.g. a model-registry naming mismatch dropped that stem), do
-            // NOT silently substitute a different stem's path — that would run the node on the
-            // wrong audio with no visible error. Fail it explicitly instead.
-            string? resolvedPath = null;
-            var stemMissing = downstream.SourceOutputName != null
-                && !msg.OutputArtifactPaths.TryGetValue(downstream.SourceOutputName, out resolvedPath);
-
-            if (stemMissing)
-            {
-                var producedStems = string.Join(", ", msg.OutputArtifactPaths.Keys);
-                var errorMessage =
-                    $"Required stem '{downstream.SourceOutputName}' was not produced by the " +
-                    $"parent node (produced: {(producedStems.Length > 0 ? producedStems : "none")}).";
-
-                var failedNodeExec = new NodeExecution
-                {
-                    WorkflowExecutionId = msg.WorkflowExecutionId,
-                    WorkflowNodeId = downstream.Id,
-                    Status = NodeExecutionStatus.Failed,
-                    ErrorMessage = errorMessage,
-                    OutputArtifactDir = $"executions/{msg.WorkflowExecutionId}/nodes/{Guid.NewGuid()}/",
-                    CompletedAt = DateTime.UtcNow
-                };
-
-                db.NodeExecutions.Add(failedNodeExec);
-                await db.SaveChangesAsync(ct);
-
-                await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
-                {
-                    type = "NodeFailed",
-                    nodeExecutionId = failedNodeExec.Id,
-                    workflowNodeId = failedNodeExec.WorkflowNodeId,
-                    attempt = failedNodeExec.Attempt,
-                    errorMessage,
-                    isTransient = false
-                });
-
-                _logger.LogWarning(
-                    "Downstream node {NodeId} not dispatched: {ErrorMessage}",
-                    downstream.Id, errorMessage);
-
-                continue;
-            }
-
             var inputPath = downstream.SourceOutputName != null
-                ? resolvedPath!
+                && msg.OutputArtifactPaths.TryGetValue(downstream.SourceOutputName, out var resolvedPath)
+                ? resolvedPath
                 : msg.OutputArtifactPaths.Values.FirstOrDefault() ?? string.Empty;
 
             var newNodeExec = new NodeExecution
