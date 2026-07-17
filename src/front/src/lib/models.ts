@@ -135,7 +135,83 @@ export interface EnsemblePreset {
   contributor: string;
 }
 
-// Community presets were removed pending re-validation against model_registry.json
-// (several referenced models with declared/real stem mismatches that are now excluded
-// from MODEL_DEFINITIONS). Add your own presets here as needed.
-export const ENSEMBLE_PRESETS: EnsemblePreset[] = [];
+// Community presets, re-validated against model_registry.json — every referenced
+// model below now resolves with status "ok". Add your own presets here as needed.
+export const ENSEMBLE_PRESETS: EnsemblePreset[] = [
+  {
+    id: 'instrumental_clean',
+    name: 'Instrumental Clean',
+    description: 'Cleanest instrumentals with minimal vocal bleed — Fv7z (bleedless) + Resurrection Inst',
+    models: ['mel_band_roformer_instrumental_fv7z_gabox.ckpt', 'bs_roformer_instrumental_resurrection_unwa.ckpt'],
+    algorithm: 'uvr_max_spec',
+    contributor: 'deton24 community guide',
+  },
+  {
+    id: 'instrumental_full',
+    name: 'Instrumental Full',
+    description: 'Maximum instrument preservation — v1e+ (fullness) + becruily inst (SOTA SDR 17.55)',
+    models: ['melband_roformer_inst_v1e_plus.ckpt', 'mel_band_roformer_instrumental_becruily.ckpt'],
+    algorithm: 'uvr_max_spec',
+    contributor: 'deton24 community guide',
+  },
+  {
+    id: 'instrumental_balanced',
+    name: 'Instrumental Balanced',
+    description: 'Good balance of noise and fullness — Gabox INSTV8 + Resurrection Inst',
+    models: ['mel_band_roformer_instrumental_instv8_gabox.ckpt', 'bs_roformer_instrumental_resurrection_unwa.ckpt'],
+    algorithm: 'uvr_max_spec',
+    contributor: 'deton24 community guide',
+  },
+  {
+    id: 'instrumental_low_resource',
+    name: 'Instrumental Low Resource',
+    description: 'Fast ensemble for low VRAM — Resurrection Inst (200 MB) + MDX HQ_5 (ONNX, very fast)',
+    models: ['bs_roformer_instrumental_resurrection_unwa.ckpt', 'UVR-MDX-NET-Inst_HQ_5.onnx'],
+    algorithm: 'avg_fft',
+    contributor: 'deton24 community guide',
+  },
+  {
+    id: 'vocal_balanced',
+    name: 'Vocal Balanced',
+    description: 'Best overall vocal quality — Resurrection (SDR 11.34) + Beta 6X (SDR 11.12) averaged',
+    models: ['bs_roformer_vocals_resurrection_unwa.ckpt', 'melband_roformer_big_beta6x.ckpt'],
+    algorithm: 'avg_fft',
+    contributor: 'deton24 community guide',
+  },
+  {
+    id: 'vocal_clean',
+    name: 'Vocal Clean',
+    description: 'Minimal instrument bleed — Revive 2 (bleedless) + FT2 bleedless with min FFT',
+    models: ['bs_roformer_vocals_revive_v2_unwa.ckpt', 'mel_band_roformer_kim_ft2_bleedless_unwa.ckpt'],
+    algorithm: 'min_fft',
+    contributor: 'deton24 community guide',
+  },
+  {
+    id: 'vocal_full',
+    name: 'Vocal Full',
+    description: 'Maximum vocal capture including harmonies — Revive 3e + becruily vocal with max FFT',
+    models: ['bs_roformer_vocals_revive_v3e_unwa.ckpt', 'mel_band_roformer_vocals_becruily.ckpt'],
+    algorithm: 'max_fft',
+    contributor: 'deton24 community guide',
+  },
+  {
+    id: 'vocal_rvc',
+    name: 'Vocal RVC',
+    description: 'Optimized for RVC/AI voice training data — Beta 6X + Gabox voc_fv4 averaged',
+    models: ['melband_roformer_big_beta6x.ckpt', 'mel_band_roformer_vocals_fv4_gabox.ckpt'],
+    algorithm: 'avg_wave',
+    contributor: 'deton24 community guide',
+  },
+  {
+    id: 'karaoke',
+    name: 'Karaoke',
+    description: 'Lead vocal removal — 3-model karaoke ensemble reaches SDR ~10.6 vs ~10.2 single model',
+    models: [
+      'mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt',
+      'mel_band_roformer_karaoke_gabox_v2.ckpt',
+      'mel_band_roformer_karaoke_becruily.ckpt',
+    ],
+    algorithm: 'avg_wave',
+    contributor: 'deton24 community guide',
+  },
+];

@@ -135,6 +135,42 @@ manual click.
   attempts) so cold-start blips self-heal without user intervention. Tie into the retry path that
   already creates a new `NodeExecution` (attempt+1).
 
+## 9. Modal `/download` endpoint's unconditional `volume.reload()` contends with concurrent writers (LOW/MEDIUM)
+
+**Where:** `src/modal-deploy/deploy_modal.py` — `download_file` (`/download/{task_id}/{file_hash}`,
+~line 434-471) and the dead/unused duplicate `get_file_by_hash_function` (~line 274-299).
+
+**Problem:** Observed live: `kuielab_b_bass.onnx` separated successfully on the remote Modal API
+(both stems written), but the node completed with **zero stems**. Root cause: three sibling
+branches (`kuielab_a_bass.onnx`, `kuielab_b_bass.onnx`, `htdemucs_6s.yaml`) were submitted
+concurrently. While the worker tried to download `kuielab_b_bass`'s two output files, the
+`htdemucs_6s` job — running in a *different* container — still had its own (unrelated) output
+files open for writing on the same shared Modal `Volume`. `volume.reload()` in the `/download`
+handler locks at the **whole-volume** level, not per-directory/task, so both downloads got a 500:
+`"there are open files preventing the operation: path outputs/<other-task-id>/drums_*.flac is
+open"`. The remote client (`audio_separator.remote`) swallows per-file download errors and still
+reports `status: "completed"`, so `RemoteAudioSeparator.separate()` returned an empty file list
+and the node published `NodeCompletedEvent` with an empty `outputArtifactPaths`.
+
+**Already mitigated (done, this session):** `RemoteAudioSeparator.separate()`
+(`app/separator.py`) now raises `TransientSeparationError` when `len(downloaded_files) <
+len(expected_files)` instead of silently returning a partial/empty list; `handlers.py` classifies
+it as `is_transient=True`. The node now correctly shows **Failed (transient)** and can be
+retried, instead of falsely showing **Completed** with no stems.
+
+**Deferred fix (not applied):** Reduce/avoid the reload contention itself in
+`deploy_modal.py`'s `/download` handler:
+- Only call `volume.reload()` if the file isn't already visible locally (`os.path.exists`) —
+  skips the whole-volume lock entirely for warm containers that already see the file.
+- When a reload is actually needed and fails with the "open files" conflict, retry with backoff
+  (~0.5s → up to a few seconds) since the conflicting writer typically closes/commits quickly,
+  instead of failing the request immediately.
+- Optionally delete or fix the dead duplicate `get_file_by_hash_function` (same bug, unused).
+
+> Full suggested diff was drafted in chat but not applied — revisit when touching
+> `deploy_modal.py` next, or if transient download failures on concurrent branches recur often
+> enough to be worth the deploy.
+
 ---
 
 ## Done (this branch)

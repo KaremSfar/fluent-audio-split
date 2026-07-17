@@ -6,7 +6,7 @@ from pathlib import Path
 from app.audio_trim import trim_audio
 from app.model_registry import get_model_entry
 from app.publisher import publish_node_completed, publish_node_failed, publish_node_started
-from app.separator import create_audio_separator
+from app.separator import TransientSeparationError, create_audio_separator
 from app.storage import FileStorageProvider
 from app.validation import SeparationValidator
 
@@ -20,6 +20,52 @@ def _slug(stem: str) -> str:
               "Drum-Bass" → "drum_bass", "HH" → "hh"
     """
     return stem.lower().replace(" ", "_").replace("-", "_")
+
+
+# Exact copy of audio_separator.separator.separator.STEM_NAME_MAP — must stay in
+# sync with the installed SDK version so _ensemble_bucket_name below reproduces
+# precisely the same canonical bucket name the SDK's _separate_ensemble computes
+# for each model's real stem name.
+_SDK_STEM_NAME_MAP = {
+    "vocals": "Vocals",
+    "instrumental": "Instrumental",
+    "inst": "Instrumental",
+    "karaoke": "Instrumental",
+    "other": "Other",
+    "no_vocals": "Instrumental",
+    "drums": "Drums",
+    "bass": "Bass",
+    "guitar": "Guitar",
+    "piano": "Piano",
+    "synthesizer": "Synthesizer",
+    "strings": "Strings",
+    "woodwinds": "Woodwinds",
+    "brass": "Brass",
+    "wind inst": "Wind Inst",
+    "lead vocals": "Lead Vocals",
+    "backing vocals": "Backing Vocals",
+    "primary stem": "Primary Stem",
+    "secondary stem": "Secondary Stem",
+}
+
+
+def _ensemble_bucket_name(model_real_stems: list[str], raw_stem_name: str) -> str:
+    """Replicates audio_separator's Separator._separate_ensemble stem-bucket-naming
+    logic for a single raw (real/internal) stem name, given the full list of real
+    stem names that model produces. Used to predict, ahead of time, what bucket
+    name the SDK will group this stem's output under during ensembling."""
+    lower_name = raw_stem_name.lower()
+    num_model_stems = len(model_real_stems)
+    has_vocal_stem = any("vocal" in s.lower() or s.lower() in ("vocals",) for s in model_real_stems)
+
+    if "vocal" in lower_name and "lead" not in lower_name and "backing" not in lower_name:
+        return "Vocals"
+    elif lower_name == "other" and num_model_stems == 2 and has_vocal_stem:
+        return "Instrumental"
+    elif lower_name in _SDK_STEM_NAME_MAP:
+        return _SDK_STEM_NAME_MAP[lower_name]
+    else:
+        return raw_stem_name.title()
 
 
 def handle_process_node(payload: dict, storage: FileStorageProvider) -> None:
@@ -69,8 +115,7 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
         # config.get("stems") from the front-end is intentionally ignored — no
         # fallback: an unknown/unresolved model fails the node immediately.
         model_entry = get_model_entry(model_name)
-        for extra in ensemble_models if ensemble_enabled else []:
-            get_model_entry(extra)  # existence check only; raises if unknown
+        extra_entries = {extra: get_model_entry(extra) for extra in (ensemble_models if ensemble_enabled else [])}
 
         exec_prefix = node_execution_id[:5]
         output_names: dict[str, str] = {}
@@ -78,16 +123,32 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
         reverse_map: dict[str, str] = {}
 
         if ensemble_enabled:
-            # The SDK's ensemble path groups per-model stems into canonical bucket
-            # names (Vocals/Instrumental/etc, see STEM_NAME_MAP in the SDK) BEFORE
-            # applying custom_output_names — it never compares against any single
-            # model's real internal stem name. Declared/canonical names are
-            # already correct here; the per-model stem_map indirection below is
-            # only needed (and only correct) for the single-model path.
+            # The SDK's ensemble path re-derives a canonical "bucket" name for each
+            # model's own real/internal stem name independently (STEM_NAME_MAP plus
+            # vocal/"other" heuristics in audio_separator's Separator._separate_ensemble),
+            # falling back to raw_stem_name.title() for anything it doesn't recognize —
+            # which is every stem type outside its small built-in vocabulary (e.g. our
+            # dereverb/denoise/karaoke categories). Ensemble member models can declare
+            # their real internal stem name with different casing/spacing for the exact
+            # same conceptual stem (e.g. "noreverb" vs "No Reverb"), so title()-ing each
+            # independently can produce DIFFERENT bucket names for what should be one
+            # stem. Any bucket whose name doesn't exactly match one of our
+            # custom_output_names keys gets a generic auto-generated filename and is
+            # silently dropped by the reverse_map lookup below instead of being
+            # downloadable — replicate the SDK's exact canonicalization here for every
+            # model in the ensemble and register every resulting bucket-name variant, so
+            # no stem a model actually produces is ever silently lost.
+            all_entries = {model_name: model_entry, **extra_entries}
             for stem in model_entry["stems"]:
                 normalized = f"{_slug(stem)}_{exec_prefix}"
-                output_names[stem] = normalized
                 reverse_map[normalized] = stem
+                output_names[stem] = normalized  # exact declared name (covers the common case)
+                for entry in all_entries.values():
+                    real = entry["stem_map"].get(stem)
+                    if real is None:
+                        continue
+                    bucket = _ensemble_bucket_name(list(entry["stem_map"].values()), real)
+                    output_names[bucket] = normalized
         else:
             # stem_map pairs our declared/display stem name with the SDK's real
             # internal stem name for this exact model (pre-resolved once, offline,
@@ -158,6 +219,6 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
             workflow_execution_id,
             node_execution_id,
             str(e),
-            is_transient=isinstance(e, OSError),
+            is_transient=isinstance(e, (OSError, TransientSeparationError)),
         )
 
