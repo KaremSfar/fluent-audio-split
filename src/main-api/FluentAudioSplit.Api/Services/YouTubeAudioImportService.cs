@@ -146,6 +146,15 @@ public sealed class YouTubeAudioImportService : IYouTubeAudioImportService
         process.StartInfo.ArgumentList.Add("--ignore-config");
         process.StartInfo.ArgumentList.Add("--js-runtimes");
         process.StartInfo.ArgumentList.Add($"deno:{_options.JavaScriptRuntimePath}");
+        if (!string.IsNullOrWhiteSpace(_options.CookiesFilePath))
+        {
+            var cookiesFile = new FileInfo(_options.CookiesFilePath);
+            if (!cookiesFile.Exists || cookiesFile.Length == 0)
+                throw new YouTubeAudioImportException("The server's YouTube authentication cookie file is unavailable.");
+
+            process.StartInfo.ArgumentList.Add("--cookies");
+            process.StartInfo.ArgumentList.Add(cookiesFile.FullName);
+        }
         process.StartInfo.ArgumentList.Add("--extract-audio");
         process.StartInfo.ArgumentList.Add("--audio-format");
         process.StartInfo.ArgumentList.Add("mp3");

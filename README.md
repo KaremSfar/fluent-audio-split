@@ -385,6 +385,13 @@ file, then opens the existing waveform and trim controls. The browser never down
   `YouTubeAudioImport__MaximumFileSizeBytes`.
 - The API image includes checksum-verified `yt-dlp` 2026.07.04, `ffmpeg`, and Deno for yt-dlp's required
   JavaScript challenge runtime. Rebuild with a newer pinned yt-dlp release when YouTube changes its delivery behavior.
+- YouTube can challenge a VPS IP with “Sign in to confirm you're not a bot.” In that case, export a dedicated
+  YouTube account's Netscape/Mozilla cookie file to `secrets/youtube-cookies.txt`, secure it with `chmod 600`, and
+  start production with `docker compose -f docker-compose.yml -f docker-compose.youtube-cookies.yml up -d --build`.
+  The overlay mounts the file read-only into the API; it is ignored by Git, never sent from the browser, and never
+  stored by the application. Rotate or remove it if the account is challenged or no longer needed.
+- Cookies are not a guarantee: YouTube may require a per-video PO-token provider or reject a datacenter IP. Keep
+  import volume low and use only an account and media you are authorized to use.
 - Only import media you are authorized to download and process.
 
 ### Local development (without Docker)
