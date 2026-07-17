@@ -152,8 +152,10 @@ public sealed class YouTubeAudioImportService : IYouTubeAudioImportService
             if (!cookiesFile.Exists || cookiesFile.Length == 0)
                 throw new YouTubeAudioImportException("The server's YouTube authentication cookie file is unavailable.");
 
+            var writableCookiesFilePath = Path.Combine(workDirectory, "youtube-cookies.txt");
+            File.Copy(cookiesFile.FullName, writableCookiesFilePath, overwrite: true);
             process.StartInfo.ArgumentList.Add("--cookies");
-            process.StartInfo.ArgumentList.Add(cookiesFile.FullName);
+            process.StartInfo.ArgumentList.Add(writableCookiesFilePath);
         }
         process.StartInfo.ArgumentList.Add("--extract-audio");
         process.StartInfo.ArgumentList.Add("--audio-format");
