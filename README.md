@@ -380,11 +380,10 @@ file, then opens the existing waveform and trim controls. The browser never down
 
 - The API container needs outbound HTTPS access to YouTube and its media/CDN hosts. Datacenter/VPS IP ranges are
   frequently challenged, throttled, or silently blocked by YouTube, so a residential/trusted egress proxy is the
-  most reliable option in production. Set `YouTubeAudioImport__ProxyUrl` (for example a home proxy reachable over a
-  tailnet, `http://<host>:3128`) to route both extraction and media download through it. Leave it empty to connect
-  directly, which is fine for local development on a residential connection. The optional
-  `docker-compose.youtube-proxy.yml` overlay sets this for you; start production with
-  `docker compose -f docker-compose.yml -f docker-compose.youtube-proxy.yml up -d --build`.
+  most reliable option in production. Set `YOUTUBE_IMPORT_PROXY_URL` in `.env` (for example a home proxy reachable
+  over a tailnet, `http://<host>:3128`); Compose passes it to the API as `YouTubeAudioImport__ProxyUrl` to route
+  both extraction and media download through it. Leave it empty to connect directly, which is fine for local
+  development on a residential connection.
 - Imports are synchronous in this release and time out after five minutes by default. The default maximum MP3 size
   is 1 GiB. These limits are configurable with `YouTubeAudioImport__TimeoutSeconds` and
   `YouTubeAudioImport__MaximumFileSizeBytes`.
