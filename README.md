@@ -384,7 +384,8 @@ file, then opens the existing waveform and trim controls. The browser never down
   is 1 GiB. These limits are configurable with `YouTubeAudioImport__TimeoutSeconds` and
   `YouTubeAudioImport__MaximumFileSizeBytes`.
 - The API image includes checksum-verified `yt-dlp` 2026.07.04, `ffmpeg`, and Deno for yt-dlp's required
-  JavaScript challenge runtime. Rebuild with a newer pinned yt-dlp release when YouTube changes its delivery behavior.
+  JavaScript challenge runtime, plus `curl-cffi` for Chrome TLS/browser impersonation. Rebuild with newer pinned
+  downloader dependencies when YouTube changes its delivery behavior.
 - YouTube can challenge a VPS IP with “Sign in to confirm you're not a bot.” In that case, export a dedicated
   YouTube account's Netscape/Mozilla cookie file to `secrets/youtube-cookies.txt`, secure it with `chmod 600`, and
   start production with `docker compose -f docker-compose.yml -f docker-compose.youtube-cookies.yml up -d --build`.

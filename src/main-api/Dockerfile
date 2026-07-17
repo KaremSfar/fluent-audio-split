@@ -5,12 +5,15 @@ ARG YT_DLP_SHA256=495be29ff4d9d4e9be7eabdfef225221e5d5282e77f2f505abc6dca80349f3
 ARG DENO_VERSION=2.9.3
 ARG DENO_AMD64_SHA256=8101865641cbede56f08ad19c0a67a87df84bce127fee0d3e3e1f7467717ffa6
 ARG DENO_ARM64_SHA256=753937db98a4b56cbbbd26e8f00eb4b789191a229afec93f74bcfa4e79bc2c8b
+ARG CURL_CFFI_VERSION=0.15.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
 	ca-certificates \
 	curl \
 	ffmpeg \
 	python3 \
+	python3-pip \
 	unzip \
+	&& python3 -m pip install --no-cache-dir --break-system-packages "curl-cffi==${CURL_CFFI_VERSION}" \
 	&& curl --fail --location --retry 3 \
 		"https://github.com/yt-dlp/yt-dlp/releases/download/${YT_DLP_VERSION}/yt-dlp" \
 		--output /usr/local/bin/yt-dlp \

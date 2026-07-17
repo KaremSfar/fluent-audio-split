@@ -146,6 +146,11 @@ public sealed class YouTubeAudioImportService : IYouTubeAudioImportService
         process.StartInfo.ArgumentList.Add("--ignore-config");
         process.StartInfo.ArgumentList.Add("--js-runtimes");
         process.StartInfo.ArgumentList.Add($"deno:{_options.JavaScriptRuntimePath}");
+        if (!string.IsNullOrWhiteSpace(_options.ImpersonateClient))
+        {
+            process.StartInfo.ArgumentList.Add("--impersonate");
+            process.StartInfo.ArgumentList.Add(_options.ImpersonateClient);
+        }
         if (!string.IsNullOrWhiteSpace(_options.CookiesFilePath))
         {
             var cookiesFile = new FileInfo(_options.CookiesFilePath);
