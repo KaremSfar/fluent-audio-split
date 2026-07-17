@@ -378,21 +378,23 @@ The **Run Workflow** dialog can also import a single YouTube video URL. The API 
 audio directly with `yt-dlp`, converts it to MP3 with `ffmpeg`, stores it as the signed-in user's normal input
 file, then opens the existing waveform and trim controls. The browser never downloads from YouTube directly.
 
-- The API container needs outbound HTTPS access to YouTube and its media/CDN hosts. No proxy is required for
-  ordinary low-volume use, but deployments subject to rate limits, IP blocks, or egress restrictions may need one.
+- The API container needs outbound HTTPS access to YouTube and its media/CDN hosts. Datacenter/VPS IP ranges are
+  frequently challenged, throttled, or silently blocked by YouTube, so a residential/trusted egress proxy is the
+  most reliable option in production. Set `YouTubeAudioImport__ProxyUrl` (for example a home proxy reachable over a
+  tailnet, `http://<host>:3128`) to route both extraction and media download through it. Leave it empty to connect
+  directly, which is fine for local development on a residential connection. The optional
+  `docker-compose.youtube-proxy.yml` overlay sets this for you; start production with
+  `docker compose -f docker-compose.yml -f docker-compose.youtube-proxy.yml up -d --build`.
 - Imports are synchronous in this release and time out after five minutes by default. The default maximum MP3 size
   is 1 GiB. These limits are configurable with `YouTubeAudioImport__TimeoutSeconds` and
   `YouTubeAudioImport__MaximumFileSizeBytes`.
 - The API image includes checksum-verified `yt-dlp` 2026.07.04, `ffmpeg`, and Deno for yt-dlp's required
   JavaScript challenge runtime, plus `curl-cffi` for Chrome TLS/browser impersonation. Rebuild with newer pinned
   downloader dependencies when YouTube changes its delivery behavior.
-- YouTube can challenge a VPS IP with “Sign in to confirm you're not a bot.” In that case, export a dedicated
-  YouTube account's Netscape/Mozilla cookie file to `secrets/youtube-cookies.txt`, secure it with `chmod 600`, and
-  start production with `docker compose -f docker-compose.yml -f docker-compose.youtube-cookies.yml up -d --build`.
-  The overlay mounts the file read-only into the API; it is ignored by Git, never sent from the browser, and never
-  stored by the application. Rotate or remove it if the account is challenged or no longer needed.
-- Cookies are not a guarantee: YouTube may require a per-video PO-token provider or reject a datacenter IP. Keep
-  import volume low and use only an account and media you are authorized to use.
+- On a datacenter IP, YouTube may return a “Sign in to confirm you're not a bot” challenge at extraction time or
+  drop the media download from its CDN even after a signed URL is issued. Routing through a residential egress with
+  `YouTubeAudioImport__ProxyUrl` is the dependable remedy. Keep import volume low and use only media you are
+  authorized to use.
 - Only import media you are authorized to download and process.
 
 ### Local development (without Docker)

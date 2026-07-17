@@ -126,7 +126,8 @@ dotnet ef migrations add <Name> \
 
 Config (env / `appsettings`): `ConnectionStrings__DefaultConnection`, `RabbitMq__Host/Username/Password`,
 `FileStorage__BasePath`, `YouTubeAudioImport__DownloaderPath`, `YouTubeAudioImport__JavaScriptRuntimePath`,
-`YouTubeAudioImport__ImpersonateClient`, `YouTubeAudioImport__CookiesFilePath`, `YouTubeAudioImport__FfmpegPath`,
+`YouTubeAudioImport__ImpersonateClient`, `YouTubeAudioImport__ProxyUrl`,
+`YouTubeAudioImport__FfmpegPath`,
 `YouTubeAudioImport__TimeoutSeconds`, and
 `YouTubeAudioImport__MaximumFileSizeBytes`.
 
@@ -139,7 +140,6 @@ background queue can call the same import operation while keeping the initial HT
 
 - Accepted URLs are canonical single-video links on `youtube.com` and `youtu.be`; playlists and arbitrary URLs are rejected.
 - The API runtime image supplies checksum-verified `yt-dlp` 2026.07.04, `ffmpeg`, Deno for yt-dlp's required EJS JavaScript runtime, and `curl-cffi` for Chrome request impersonation. `ImpersonateClient` defaults to `chrome`; set it to an empty value to disable impersonation. Local API development needs the commands on `PATH`, or configure their paths; `FfmpegPath` is empty by default so yt-dlp searches `PATH`.
-- The API host must have outbound HTTPS access to YouTube and its media/CDN hosts. Do not place a proxy in the path unless egress policy, geographic routing, or rate limiting requires it.
-- To address YouTube's VPS “Sign in to confirm you're not a bot” challenge, set `YouTubeAudioImport__CookiesFilePath` to an operator-managed Netscape/Mozilla cookie file. The optional root `docker-compose.youtube-cookies.yml` overlay mounts `secrets/youtube-cookies.txt` at `/run/secrets/youtube-cookies.txt` read-only. Do not accept cookie files from API clients or put them in `appsettings`; protect the host file with mode `600` and rotate it when needed.
-- Authentication cookies can still be insufficient when YouTube requires a per-video PO token or rejects the host IP. yt-dlp recommends a PO-token provider plugin in that case; use a dedicated account and keep request volume low to reduce the risk of account restrictions.
+- The API host must have outbound HTTPS access to YouTube and its media/CDN hosts. Datacenter/VPS IPs are commonly challenged or throttled, so set `YouTubeAudioImport__ProxyUrl` to a residential/trusted egress proxy (e.g. `http://<host>:3128`) to route extraction and media download through it. Leave it empty to connect directly. The optional root `docker-compose.youtube-proxy.yml` overlay sets this value for deployment.
+- On a datacenter IP, YouTube may return a “Sign in to confirm you're not a bot” challenge at extraction time or time out the media download from its CDN after issuing a signed URL. A residential egress via `YouTubeAudioImport__ProxyUrl` resolves both cases. Keep request volume low and use only media you are authorized to use.
 - Defaults are five minutes and 1 GiB. Override `YouTubeAudioImport__TimeoutSeconds` or `YouTubeAudioImport__MaximumFileSizeBytes` to suit deployment capacity.

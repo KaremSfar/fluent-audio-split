@@ -1,0 +1,8 @@
+services:
+  api:
+    environment:
+      # Route YouTube extraction and media download through a residential/trusted
+      # egress proxy. Datacenter/VPS IPs are frequently blocked or throttled by
+      # YouTube, so a residential proxy (e.g. a home proxy reachable over your
+      # tailnet) is the most reliable way to import audio. Adjust the URL below.
+      YouTubeAudioImport__ProxyUrl: http://100.114.89.112:3128
