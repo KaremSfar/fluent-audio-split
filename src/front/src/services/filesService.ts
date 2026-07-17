@@ -32,7 +32,10 @@ export const filesService = {
       throw err;
     }
   },
-  download: async (relativePath: string, fileName?: string): Promise<void> => {
+  // Fetch an auth-gated artifact as a blob and wrap it in an object URL the caller
+  // must revoke. Used both for downloads and for feeding audio into a waveform player,
+  // since the endpoint requires a Bearer header (so `<audio src>` can't be used directly).
+  getObjectUrl: async (relativePath: string): Promise<string> => {
     const token = localStorage.getItem('auth_token');
     const base = import.meta.env.VITE_SERVICE_URL ?? 'http://localhost:5001';
     const url = `${base}/api/files/download?path=${encodeURIComponent(relativePath)}`;
@@ -44,7 +47,10 @@ export const filesService = {
     if (!response.ok) throw new Error(`Download failed: ${response.status}`);
 
     const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
+    return URL.createObjectURL(blob);
+  },
+  download: async (relativePath: string, fileName?: string): Promise<void> => {
+    const objectUrl = await filesService.getObjectUrl(relativePath);
     const a = document.createElement('a');
     a.href = objectUrl;
     a.download = fileName ?? relativePath.split('/').pop() ?? 'download';
