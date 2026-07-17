@@ -11,6 +11,18 @@ export const filesService = {
     const { data } = await apiClient.post<FileRecord>('/files/upload', formData);
     return data;
   },
+  importYouTube: async (url: string): Promise<FileRecord> => {
+    const { data } = await apiClient.post<FileRecord>('/files/import-youtube', { url });
+    return data;
+  },
+  getContentAsFile: async (fileRecord: FileRecord): Promise<File> => {
+    const { data } = await apiClient.get<Blob>(`/files/${fileRecord.id}/content`, {
+      responseType: 'blob',
+    });
+    return new File([data], fileRecord.originalFileName, {
+      type: data.type || fileRecord.contentType,
+    });
+  },
   findByHash: async (hash: string): Promise<FileRecord | null> => {
     try {
       const { data } = await apiClient.get<FileRecord>(`/files/by-hash/${hash}`);

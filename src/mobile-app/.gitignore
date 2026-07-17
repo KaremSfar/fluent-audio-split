@@ -1,0 +1,58 @@
+# Flutter and Dart tool state.
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+.cache/
+build/
+coverage/
+doc/api/
+
+# IDE and operating-system files. Shared VS Code workspace settings remain
+# trackable; only per-user state is excluded.
+.idea/
+.vscode/*.code-workspace
+.vscode/.ropeproject/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Android local SDK/configuration, Gradle state, native build intermediates,
+# and app signing material.
+android/.gradle/
+android/.cxx/
+android/local.properties
+android/key.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+*.jks
+*.keystore
+
+# iOS build products and user-specific Xcode state.
+ios/Flutter/ephemeral/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/.last_build_id
+ios/Pods/
+ios/.symlinks/
+ios/Runner.xcworkspace/xcuserdata/
+ios/Runner.xcodeproj/xcuserdata/
+ios/Runner/GeneratedPluginRegistrant.*
+
+# Build outputs and obfuscation symbols.
+*.apk
+*.aab
+*.ipa
+app.*.symbols
+app.*.map.json
+
+# Local environment overrides. Commit a named example file when needed.
+.env
+.env.*
+!.env.example

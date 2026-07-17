@@ -1,6 +1,7 @@
 namespace FluentAudioSplit.Api.Dtos;
 
 public record FileRecordDto(Guid Id, string OriginalFileName, string ContentType, long SizeBytes, DateTime CreatedAt, string? ContentHash);
+public record ImportYouTubeAudioRequest(string Url);
 public record WorkflowNodeDto(Guid Id, int Order, string NodeType, string ConfigJson, Guid? SourceNodeId, string? SourceOutputName);
 public record WorkflowDto(Guid Id, string Name, List<WorkflowNodeDto> Nodes, DateTime CreatedAt, DateTime UpdatedAt);
 public record CreateWorkflowRequest(string Name, List<CreateWorkflowNodeRequest> Nodes);

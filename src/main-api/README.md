@@ -125,4 +125,18 @@ dotnet ef migrations add <Name> \
 ```
 
 Config (env / `appsettings`): `ConnectionStrings__DefaultConnection`, `RabbitMq__Host/Username/Password`,
-`FileStorage__BasePath`.
+`FileStorage__BasePath`, `YouTubeAudioImport__DownloaderPath`, `YouTubeAudioImport__JavaScriptRuntimePath`,
+`YouTubeAudioImport__FfmpegPath`, `YouTubeAudioImport__TimeoutSeconds`, and
+`YouTubeAudioImport__MaximumFileSizeBytes`.
+
+## YouTube audio imports
+
+`POST /api/files/import-youtube` accepts an authenticated `{ "url": "..." }` request for one YouTube video.
+`IYouTubeAudioImportService` validates the URL, invokes `yt-dlp` and `ffmpeg` without a shell, then persists the
+resulting MP3 as a normal owned `FileRecord`. The service is deliberately independent of the controller so a future
+background queue can call the same import operation while keeping the initial HTTP flow synchronous.
+
+- Accepted URLs are canonical single-video links on `youtube.com` and `youtu.be`; playlists and arbitrary URLs are rejected.
+- The API runtime image supplies checksum-verified `yt-dlp` 2026.07.04, `ffmpeg`, and Deno for yt-dlp's required EJS JavaScript runtime. Local API development needs all three commands on `PATH`, or configure their paths; `FfmpegPath` is empty by default so yt-dlp searches `PATH`.
+- The API host must have outbound HTTPS access to YouTube and its media/CDN hosts. Do not place a proxy in the path unless egress policy, geographic routing, or rate limiting requires it.
+- Defaults are five minutes and 1 GiB. Override `YouTubeAudioImport__TimeoutSeconds` or `YouTubeAudioImport__MaximumFileSizeBytes` to suit deployment capacity.

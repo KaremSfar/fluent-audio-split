@@ -7,6 +7,8 @@ import { filesService } from '@/services/filesService';
 import { sha256Hex } from '@/lib/hashFile';
 import { TrimWaveform, type TrimWaveformHandle } from '@/components/execution/TrimWaveform';
 import type { FileRecord } from '@/types/file';
+import { isAxiosError } from 'axios';
+import { Download } from 'lucide-react';
 
 interface ExecuteTrimDialogProps {
   onExecute: (args: { fileId: string; trimStart?: number; trimEnd?: number }) => void;
@@ -15,6 +17,7 @@ interface ExecuteTrimDialogProps {
 }
 
 type UploadPhase = 'idle' | 'hashing' | 'checking' | 'uploading' | 'ready' | 'error';
+type InputSource = 'local' | 'youtube';
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
@@ -25,10 +28,14 @@ function formatTime(seconds: number): string {
 
 export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrimDialogProps) {
   const [pickedFile, setPickedFile] = useState<File | null>(null);
+  const [inputSource, setInputSource] = useState<InputSource | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileRecord, setFileRecord] = useState<FileRecord | null>(null);
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>('idle');
   const [wasReused, setWasReused] = useState(false);
+  const [youTubeUrl, setYouTubeUrl] = useState('');
+  const [isImportingYouTube, setIsImportingYouTube] = useState(false);
+  const [youTubeError, setYouTubeError] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
@@ -40,6 +47,7 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
 
   const resetToDropzone = useCallback(() => {
     setPickedFile(null);
+    setInputSource(null);
     setFileRecord(null);
     setUploadPhase('idle');
     setWasReused(false);
@@ -53,8 +61,11 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
     const file = fileList?.[0];
     if (!file) return;
     setPickedFile(file);
+    setInputSource('local');
     setFileRecord(null);
+    setUploadPhase('idle');
     setWasReused(false);
+    setYouTubeError(null);
     setDuration(0);
     setTrimStart(0);
     setTrimEnd(0);
@@ -63,7 +74,7 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
 
   // Upload/dedup flow — runs in parallel with the client-side waveform decode.
   useEffect(() => {
-    if (!pickedFile) return;
+    if (!pickedFile || inputSource !== 'local') return;
     let cancelled = false;
 
     (async () => {
@@ -94,12 +105,43 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
     return () => {
       cancelled = true;
     };
-  }, [pickedFile, retryToken]);
+  }, [inputSource, pickedFile, retryToken]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     handleFileSelected(e.dataTransfer.files);
+  };
+
+  const handleYouTubeImport = async () => {
+    const url = youTubeUrl.trim();
+    if (!url) {
+      setYouTubeError('Paste a YouTube video URL to continue.');
+      return;
+    }
+
+    setYouTubeError(null);
+    setIsImportingYouTube(true);
+    try {
+      const importedFileRecord = await filesService.importYouTube(url);
+      const importedFile = await filesService.getContentAsFile(importedFileRecord);
+      setInputSource('youtube');
+      setPickedFile(importedFile);
+      setFileRecord(importedFileRecord);
+      setUploadPhase('ready');
+      setWasReused(false);
+      setDuration(0);
+      setTrimStart(0);
+      setTrimEnd(0);
+      setWaveformError(false);
+    } catch (error) {
+      const message = isAxiosError(error) && typeof error.response?.data === 'string'
+        ? error.response.data
+        : 'Unable to import audio from that YouTube video.';
+      setYouTubeError(message);
+    } finally {
+      setIsImportingYouTube(false);
+    }
   };
 
   const handleTrimStartChange = (value: number) => {
@@ -162,29 +204,75 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
         </CardHeader>
         <CardContent className="space-y-4">
           {!pickedFile ? (
-            <div
-              className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
-                isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/30 hover:border-primary/50'
-              }`}
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={handleDrop}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="audio/*"
-                className="hidden"
-                onChange={(e) => handleFileSelected(e.target.files)}
-              />
+            <div className="space-y-5">
+              <div
+                className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
+                  isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/30 hover:border-primary/50'
+                }`}
+                onClick={() => !isImportingYouTube && fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (!isImportingYouTube) setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  if (!isImportingYouTube) handleDrop(e);
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  disabled={isImportingYouTube}
+                  onChange={(e) => handleFileSelected(e.target.files)}
+                />
+                <div className="space-y-2">
+                  <p className="text-2xl">🎵</p>
+                  <p className="font-medium">Drop an audio file here or click to browse</p>
+                  <p className="text-sm text-muted-foreground">Any audio format your browser can decode</p>
+                </div>
+              </div>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-3 text-muted-foreground">Or paste a YouTube URL</span>
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <p className="text-2xl">🎵</p>
-                <p className="font-medium">Drop an audio file here or click to browse</p>
-                <p className="text-sm text-muted-foreground">Any audio format your browser can decode</p>
+                <Label htmlFor="youtube-url">YouTube video URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="youtube-url"
+                    type="url"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    value={youTubeUrl}
+                    disabled={isImportingYouTube}
+                    onChange={(e) => setYouTubeUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleYouTubeImport();
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => void handleYouTubeImport()}
+                    disabled={isImportingYouTube || !youTubeUrl.trim()}
+                  >
+                    <Download className="size-4" />
+                    {isImportingYouTube ? 'Importing…' : 'Import'}
+                  </Button>
+                </div>
+                {isImportingYouTube && (
+                  <p className="text-sm text-muted-foreground">Downloading and preparing an MP3 preview…</p>
+                )}
+                {youTubeError && <p className="text-sm text-red-600">{youTubeError}</p>}
               </div>
             </div>
           ) : (

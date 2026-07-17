@@ -372,6 +372,21 @@ on the **canvas**, and hit **Execute**.
 > First run downloads ML models into the `model-cache` volume (can be slow). Set `AUDIO_SEPARATOR_API_URL` to
 > offload separation to a remote GPU (see `src/modal-deploy`).
 
+### YouTube audio import
+
+The **Run Workflow** dialog can also import a single YouTube video URL. The API downloads the selected video's
+audio directly with `yt-dlp`, converts it to MP3 with `ffmpeg`, stores it as the signed-in user's normal input
+file, then opens the existing waveform and trim controls. The browser never downloads from YouTube directly.
+
+- The API container needs outbound HTTPS access to YouTube and its media/CDN hosts. No proxy is required for
+  ordinary low-volume use, but deployments subject to rate limits, IP blocks, or egress restrictions may need one.
+- Imports are synchronous in this release and time out after five minutes by default. The default maximum MP3 size
+  is 1 GiB. These limits are configurable with `YouTubeAudioImport__TimeoutSeconds` and
+  `YouTubeAudioImport__MaximumFileSizeBytes`.
+- The API image includes checksum-verified `yt-dlp` 2026.07.04, `ffmpeg`, and Deno for yt-dlp's required
+  JavaScript challenge runtime. Rebuild with a newer pinned yt-dlp release when YouTube changes its delivery behavior.
+- Only import media you are authorized to download and process.
+
 ### Local development (without Docker)
 
 ```bash
@@ -397,7 +412,7 @@ built-in API (`MapIdentityApi`) mounted at `/api/auth` — there is no custom au
 | Area | Endpoints |
 |---|---|
 | **Auth** | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh` (Identity) |
-| **Files** | `POST /api/files/upload` · `GET /api/files` · `GET /api/files/download?path=` · `DELETE /api/files/{id}` |
+| **Files** | `POST /api/files/upload` · `POST /api/files/import-youtube` · `GET /api/files` · `GET /api/files/{id}/content` · `GET /api/files/download?path=` · `DELETE /api/files/{id}` |
 | **Workflows** | `POST /api/workflows` · `GET /api/workflows` · `GET /api/workflows/{id}` · `PATCH /api/workflows/{id}` · `DELETE /api/workflows/{id}` · `POST /api/workflows/{id}/execute` |
 | **Executions** | `GET /api/executions` · `GET /api/executions/{id}` · `GET /api/executions/{id}/stream` (SSE) · `GET /api/executions/{id}/results` · `POST /api/executions/{id}/nodes/{nodeExecId}/retry` |
 | **Models** | `GET /api/models` |
@@ -468,6 +483,7 @@ See **[`TODO.md`](TODO.md)** for prioritized, file-referenced follow-ups.
 
 - [x] Auth (register / login / bearer + refresh)
 - [x] File upload / list / download / delete
+- [x] Synchronous YouTube URL → MP3 import into the normal file and waveform flow
 - [x] Workflow CRUD + multi-node DAG canvas editor (React Flow)
 - [x] Multi-model separation (Demucs / MDX / MDXC·Roformer / VR), ensembles, advanced params
 - [x] Stem-chaining (a node's stem becomes a downstream node's input)
