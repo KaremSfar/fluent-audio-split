@@ -102,7 +102,10 @@ def verify_api_key(x_api_key: str = Header(..., alias="X-API-Key")) -> None:
 @app.function(
     image=image, gpu="ANY", timeout=1200,
     volumes={"/storage": volume, "/models": models_volume},
-    scaledown_window=300,
+    # Keep a GPU container warm for 30s after its last job so sequential nodes in a chained
+    # workflow (which fire seconds apart) reuse the same warm, model-loaded container instead of
+    # cold-starting each time — while still scaling down quickly once truly idle to cut GPU cost.
+    scaledown_window=30,
 )
 def separate_audio_function(
     audio_data: bytes,
@@ -524,7 +527,7 @@ async def root() -> dict:
 
 
 @app.function(
-    image=image, timeout=600, scaledown_window=300,
+    image=image, timeout=600, scaledown_window=30,
     volumes={"/storage": volume}, secrets=[api_key_secret],
     max_containers=2,
 )

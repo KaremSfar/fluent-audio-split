@@ -1,3 +1,4 @@
+import axios from 'axios';
 import apiClient from './apiClient';
 import type { FileRecord } from '../types/file';
 
@@ -10,12 +11,14 @@ export const filesService = {
     const { data } = await apiClient.post<FileRecord>('/files/upload', formData);
     return data;
   },
-  list: async (): Promise<FileRecord[]> => {
-    const { data } = await apiClient.get<FileRecord[]>('/files');
-    return data;
-  },
-  delete: async (id: string): Promise<void> => {
-    await apiClient.delete(`/files/${id}`);
+  findByHash: async (hash: string): Promise<FileRecord | null> => {
+    try {
+      const { data } = await apiClient.get<FileRecord>(`/files/by-hash/${hash}`);
+      return data;
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) return null;
+      throw err;
+    }
   },
   download: async (relativePath: string, fileName?: string): Promise<void> => {
     const token = localStorage.getItem('auth_token');

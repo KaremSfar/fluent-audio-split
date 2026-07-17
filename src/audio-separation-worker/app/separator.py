@@ -17,6 +17,12 @@ from app.config import AUDIO_SEPARATOR_API_KEY, AUDIO_SEPARATOR_API_URL, MODEL_F
 
 logger = logging.getLogger("worker.separator")
 
+
+class TransientSeparationError(RuntimeError):
+    """Raised for separation failures that are expected to succeed on retry
+    (e.g. transient network/storage errors), as opposed to permanent config errors."""
+
+
 # ── Param name mappings: flat configJson key → Separator dict key ─────────────
 _MDX_PARAM_MAP = {
     "mdx_segment_size": "segment_size",
@@ -165,7 +171,22 @@ class RemoteAudioSeparator(AudioSeparator):
         )
 
         if result.get("status") == "completed":
-            return result.get("downloaded_files", [])
+            downloaded_files = result.get("downloaded_files", [])
+            expected_files = result.get("files", {})
+            expected_count = len(expected_files)
+
+            # The remote client swallows per-file download errors internally and still
+            # reports status "completed" even if some/all files failed to download (e.g.
+            # transient 500s from the API server when a concurrent job holds files open on
+            # the same shared volume). Treat a short download count as a failure so the node
+            # is retried instead of silently completing with missing/no stems.
+            if expected_count and len(downloaded_files) < expected_count:
+                raise TransientSeparationError(
+                    f"Remote separation reported success but only {len(downloaded_files)}/"
+                    f"{expected_count} output file(s) downloaded — likely a transient "
+                    "download failure on the remote API; retry the node."
+                )
+            return downloaded_files
 
         raise RuntimeError(
             f"Remote separation failed: {result.get('error', 'Unknown error')}"

@@ -41,26 +41,32 @@ public class NodeFailedConsumer : IConsumer<NodeFailedEvent>
         nodeExec.ErrorMessage = msg.ErrorMessage;
         nodeExec.CompletedAt = DateTime.UtcNow;
 
-        var workflowExec = await db.WorkflowExecutions
-            .FirstOrDefaultAsync(we => we.Id == msg.WorkflowExecutionId, context.CancellationToken);
-
-        if (workflowExec is not null)
-            workflowExec.Status = WorkflowExecutionStatus.PartiallyFailed;
-
         await db.SaveChangesAsync(context.CancellationToken);
 
         await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
         {
             type = "NodeFailed",
             nodeExecutionId = msg.NodeExecutionId,
+            workflowNodeId = nodeExec.WorkflowNodeId,
+            attempt = nodeExec.Attempt,
             errorMessage = msg.ErrorMessage,
             isTransient = msg.IsTransient
         });
 
-        await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
+        // Don't mark the whole execution PartiallyFailed on the first node failure — sibling
+        // branches may still be running. Reconcile only settles a terminal status once nothing
+        // is in flight, and returns non-null exactly on the transition so we emit one terminal
+        // event (ExecutionPartiallyFailed / ExecutionFailed).
+        var terminal = await ExecutionReconciler.ReconcileAsync(
+            db, msg.WorkflowExecutionId, context.CancellationToken);
+
+        if (terminal is not null)
         {
-            type = "ExecutionPartiallyFailed",
-            workflowExecutionId = msg.WorkflowExecutionId
-        });
+            await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
+            {
+                type = ExecutionReconciler.ToEventType(terminal.Value),
+                workflowExecutionId = msg.WorkflowExecutionId
+            });
+        }
     }
 }

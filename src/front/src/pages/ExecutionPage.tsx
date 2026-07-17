@@ -6,38 +6,26 @@ import { executionsService } from '@/services/executionsService';
 import { filesService } from '@/services/filesService';
 import { workflowsService } from '@/services/workflowsService';
 import { useExecutionStream } from '@/hooks/useExecutionStream';
+import { applyNodeStatusEvent, upsertNodeExecution } from '@/lib/executionState';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { StatusBadge } from '@/components/execution/StatusBadge';
+import { NodeExecutionCard } from '@/components/execution/NodeExecutionCard';
+import { AppHeader } from '@/components/layout/AppHeader';
 import type {
   NodeExecution,
   WorkflowExecutionStatus,
-  NodeExecutionStatus,
   NodeStatusEvent,
   ExecutionStatusEvent,
 } from '@/types/execution';
 import type { WorkflowNode } from '@/types/workflow';
 
-function statusColor(status: WorkflowExecutionStatus | NodeExecutionStatus): string {
-  switch (status) {
-    case 'Completed': return 'bg-green-100 text-green-800';
-    case 'Running': return 'bg-blue-100 text-blue-800';
-    case 'Failed': return 'bg-red-100 text-red-800';
-    case 'PartiallyFailed': return 'bg-yellow-100 text-yellow-800';
-    case 'Cancelled': return 'bg-gray-100 text-gray-600';
-    default: return 'bg-gray-100 text-gray-800';
-  }
-}
-
 function formatTime(iso?: string): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString();
-}
-
-function duration(start?: string, end?: string): string {
-  if (!start || !end) return '—';
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  // Include the date, not just the time — executions can span midnight, and a time-only display
+  // makes a next-day completion look like it finished before it started.
+  return new Date(iso).toLocaleString([], {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
 }
 
 export default function ExecutionPage() {
@@ -84,24 +72,15 @@ export default function ExecutionPage() {
     execStatus === 'PartiallyFailed' || execStatus === 'Cancelled';
 
   const onNodeStatus = useCallback((ev: NodeStatusEvent) => {
-    setNodeExecutions((prev) =>
-      prev.map((n) =>
-        n.id === ev.nodeExecutionId
-          ? {
-              ...n,
-              status: ev.status,
-              attempt: ev.attempt ?? n.attempt,
-              errorMessage: ev.errorMessage,
-              outputArtifactPaths: ev.outputPaths ?? n.outputArtifactPaths,
-            }
-          : n
-      )
-    );
+    // Upsert by id, falling back to workflowNodeId so lazily-created downstream nodes and
+    // retried nodes (new ids) are inserted rather than dropped.
+    setNodeExecutions((prev) => applyNodeStatusEvent(prev, ev));
   }, []);
 
   const onExecutionStatus = useCallback((ev: ExecutionStatusEvent) => {
     setExecStatus(ev.status);
-    if (ev.status === 'Completed' || ev.status === 'PartiallyFailed') {
+    if (ev.status === 'Completed' || ev.status === 'PartiallyFailed' ||
+        ev.status === 'Failed' || ev.status === 'Cancelled') {
       queryClient.invalidateQueries({ queryKey: ['execution', id] });
     }
   }, [id, queryClient]);
@@ -117,9 +96,22 @@ export default function ExecutionPage() {
     mutationFn: ({ nodeExecutionId }: { nodeExecutionId: string }) =>
       executionsService.retry(id!, nodeExecutionId),
     onSuccess: (updated) => {
-      setNodeExecutions((prev) =>
-        prev.map((n) => (n.id === updated.id ? updated : n))
-      );
+      // Retry creates a new node execution (new id); replace by workflowNodeId so the new
+      // attempt supersedes the old failed row.
+      setNodeExecutions((prev) => upsertNodeExecution(prev, updated));
+      // The retry endpoint puts the execution back into Running server-side. Reset the local
+      // status so it's no longer treated as terminal — otherwise the SSE stream stays gated off
+      // and the retry's live progress (and its terminal event) would be missed.
+      setExecStatus('Running');
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: () => executionsService.cancel(id!),
+    onSuccess: (updated) => {
+      setExecStatus(updated.status);
+      setNodeExecutions(updated.nodeExecutions);
+      queryClient.invalidateQueries({ queryKey: ['execution', id] });
     },
   });
 
@@ -143,28 +135,28 @@ export default function ExecutionPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 hover:opacity-80">
-            <span className="text-xl">🎵</span>
-            <span className="font-semibold text-foreground">Fluent Audio Split</span>
-          </button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/executions')}>
-            ← Executions
-          </Button>
-        </div>
-      </header>
+      <AppHeader onLogoClick={() => navigate('/dashboard')}>
+        <Button variant="outline" size="sm" onClick={() => navigate('/executions')}>
+          ← Executions
+        </Button>
+      </AppHeader>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         {/* Header info */}
         <div className="space-y-1">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold tracking-tight">{execution.workflowName}</h1>
-            <span
-              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${statusColor(currentStatus)}`}
-            >
-              {currentStatus}
-            </span>
+            <StatusBadge status={currentStatus} />
+            {(currentStatus === 'Running' || currentStatus === 'Pending') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => cancelMutation.mutate()}
+                disabled={cancelMutation.isPending}
+              >
+                {cancelMutation.isPending ? 'Cancelling…' : '⨯ Cancel'}
+              </Button>
+            )}
           </div>
           <p className="text-muted-foreground text-sm">
             File: <span className="font-medium text-foreground">{execution.inputFile.originalFileName}</span>
@@ -189,96 +181,12 @@ export default function ExecutionPage() {
               node={node}
               workflowNode={nodeMap.get(node.workflowNodeId)}
               onRetry={() => retryMutation.mutate({ nodeExecutionId: node.id })}
+              onDownload={(path) => filesService.download(path).catch(console.error)}
               isRetrying={retryMutation.isPending}
             />
           ))}
         </div>
       </main>
     </div>
-  );
-}
-
-function NodeExecutionCard({
-  node,
-  workflowNode,
-  onRetry,
-  isRetrying,
-}: {
-  node: NodeExecution;
-  workflowNode?: WorkflowNode;
-  onRetry: () => void;
-  isRetrying: boolean;
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle className="text-base">
-            {workflowNode ? `Node ${workflowNode.order + 1}` : 'Audio Separation'}
-            {workflowNode && (() => {
-              try {
-                const cfg = JSON.parse(workflowNode.configJson);
-                return cfg.modelName ? <span className="ml-2 text-sm font-normal text-muted-foreground">({cfg.modelName.replace('.yaml', '')})</span> : null;
-              } catch { return null; }
-            })()}
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Attempt #{node.attempt}</span>
-            <span
-              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusColor(node.status)}`}
-            >
-              {node.status}
-            </span>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-3 gap-4 text-sm">
-          <div>
-            <p className="text-muted-foreground text-xs">Started</p>
-            <p>{formatTime(node.startedAt)}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-xs">Completed</p>
-            <p>{formatTime(node.completedAt)}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-xs">Duration</p>
-            <p>{duration(node.startedAt, node.completedAt)}</p>
-          </div>
-        </div>
-
-        {node.errorMessage && (
-          <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-            {node.errorMessage}
-          </div>
-        )}
-
-        {node.status === 'Failed' && (
-          <Button size="sm" variant="outline" onClick={onRetry} disabled={isRetrying}>
-            {isRetrying ? 'Retrying…' : '↩ Retry'}
-          </Button>
-        )}
-
-        {node.status === 'Completed' && Object.keys(node.outputArtifactPaths).length > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Download Stems</p>
-            <ul className="space-y-1">
-              {Object.entries(node.outputArtifactPaths).map(([stem, path]) => (
-                <li key={stem} className="flex items-center gap-2">
-                  <span className="font-medium text-violet-600 min-w-[80px]">{stem}</span>
-                  <button
-                    onClick={() => filesService.download(path).catch(console.error)}
-                    className="text-sm text-primary hover:underline text-left truncate"
-                  >
-                    ⬇ {path.split('/').pop() ?? path}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }

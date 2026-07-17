@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -21,77 +21,27 @@ import dagre from '@dagrejs/dagre';
 import { useAuth } from '@/auth/useAuth';
 import { workflowsService } from '@/services/workflowsService';
 import { executionsService } from '@/services/executionsService';
-import { filesService } from '@/services/filesService';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AudioSeparationNode, {
   NodeCallbacksContext,
   type AudioSeparationNodeData,
 } from '@/components/AudioSeparationNode';
 import { NodeSidePanel } from '@/components/NodeSidePanel';
+import { ExecutionDrawer } from '@/components/execution/ExecutionDrawer';
+import { ExecuteTrimDialog } from '@/components/execution/ExecuteTrimDialog';
+import { useExecutionStream } from '@/hooks/useExecutionStream';
+import { applyNodeStatusEvent, upsertNodeExecution } from '@/lib/executionState';
 import type { WorkflowNode } from '@/types/workflow';
-import type { FileRecord } from '@/types/file';
+import type {
+  WorkflowExecution,
+  WorkflowExecutionStatus,
+  NodeExecution,
+  NodeStatusEvent,
+  ExecutionStatusEvent,
+} from '@/types/execution';
 
 // ── React Flow node types registry ────────────────────────────────────────────
 const nodeTypes = { audioSeparation: AudioSeparationNode };
-
-// ── Execute Dialog ─────────────────────────────────────────────────────────────
-function ExecuteDialog({
-  files,
-  onExecute,
-  onClose,
-  isPending,
-}: {
-  files: FileRecord[];
-  onExecute: (fileId: string) => void;
-  onClose: () => void;
-  isPending: boolean;
-}) {
-  const navigate = useNavigate();
-  const [selectedFileId, setSelectedFileId] = useState(files[0]?.id ?? '');
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <Card className="w-full max-w-sm mx-4">
-        <CardHeader>
-          <CardTitle>Run Workflow</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-sm font-medium">Select audio file</label>
-            {files.length === 0 ? (
-              <div className="text-sm text-muted-foreground space-y-2">
-                <p>No files uploaded yet.</p>
-                <Button variant="outline" size="sm" onClick={() => navigate('/files')}>
-                  Upload a file →
-                </Button>
-              </div>
-            ) : (
-              <select
-                value={selectedFileId}
-                onChange={(e) => setSelectedFileId(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {files.map((f) => (
-                  <option key={f.id} value={f.id}>{f.originalFileName}</option>
-                ))}
-              </select>
-            )}
-          </div>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
-            <Button
-              disabled={!selectedFileId || isPending}
-              onClick={() => onExecute(selectedFileId)}
-            >
-              {isPending ? 'Starting…' : '⚡ Run'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
 
 // ── Dagre layout (left → right) ───────────────────────────────────────────────
 const NODE_WIDTH = 288; // w-72
@@ -183,6 +133,104 @@ export default function WorkflowCanvasPage() {
   // Keep a ref to original WorkflowNode[] so we can read nodeType on save
   const originalNodesRef = useRef<WorkflowNode[]>([]);
 
+  // ── Execution state ──────────────────────────────────────────────────────
+  const [activeExecution, setActiveExecution] = useState<WorkflowExecution | null>(null);
+  const [nodeExecutions, setNodeExecutions] = useState<NodeExecution[]>([]);
+  const [execStatus, setExecStatus] = useState<WorkflowExecutionStatus | null>(null);
+  const [showDrawer, setShowDrawer] = useState(false);
+
+  const isTerminal =
+    execStatus === 'Completed' ||
+    execStatus === 'Failed' ||
+    execStatus === 'PartiallyFailed' ||
+    execStatus === 'Cancelled';
+
+  // ── SSE callbacks ────────────────────────────────────────────────────────
+  const onNodeStatus = useCallback((ev: NodeStatusEvent) => {
+    // Upsert: events for lazily-created downstream nodes / retries reference an id we have
+    // not seen, so applyNodeStatusEvent places them by workflowNodeId instead of dropping them.
+    setNodeExecutions((prev) => applyNodeStatusEvent(prev, ev));
+  }, []);
+
+  const onExecutionStatus = useCallback(
+    (ev: ExecutionStatusEvent) => {
+      setExecStatus(ev.status);
+      // On a (near-)terminal status, reconcile local state with the authoritative server
+      // record. This canvas keeps execution state in local useState (not a query), so we
+      // refetch explicitly — backfilling any node executions, outputs or server timestamps
+      // that were missed over the stream.
+      const execId = activeExecution?.id;
+      if (execId && (ev.status === 'Completed' || ev.status === 'PartiallyFailed' ||
+                     ev.status === 'Failed' || ev.status === 'Cancelled')) {
+        executionsService
+          .get(execId)
+          .then((fresh) => {
+            setNodeExecutions(fresh.nodeExecutions);
+            setExecStatus(fresh.status);
+          })
+          .catch(() => {});
+      }
+    },
+    [activeExecution?.id],
+  );
+
+  useExecutionStream({
+    executionId: activeExecution?.id,
+    onNodeStatus,
+    onExecutionStatus,
+    enabled: !!activeExecution && !isTerminal && isAuthenticated,
+  });
+
+  // ── Overlay execution status onto React Flow nodes ───────────────────────
+  const rfNodesWithExec = useMemo(() => {
+    if (!activeExecution || nodeExecutions.length === 0) return rfNodes;
+
+    // Build a map: workflowNodeId → NodeExecution
+    const neMap = new Map<string, NodeExecution>();
+    for (const ne of nodeExecutions) neMap.set(ne.workflowNodeId, ne);
+
+    // Build a set of completed workflow node IDs for parent checks
+    const completedNodeIds = new Set<string>();
+    for (const ne of nodeExecutions) {
+      if (ne.status === 'Completed') completedNodeIds.add(ne.workflowNodeId);
+    }
+
+    return rfNodes.map((n) => {
+      const ne = neMap.get(n.id);
+      const nodeData = n.data as unknown as AudioSeparationNodeData;
+
+      // A node can play if:
+      // - It's a root node (no parent), OR all parent nodes have completed
+      // - AND it's not currently running/pending
+      const parentEdge = rfEdges.find((e) => e.target === n.id);
+      const parentCompleted = !parentEdge || completedNodeIds.has(parentEdge.source);
+      const notBusy = !ne || (ne.status !== 'Running' && ne.status !== 'Pending');
+      const canPlay = parentCompleted && notBusy;
+
+      if (!ne) {
+        return {
+          ...n,
+          data: { ...(n.data as object), execCanPlay: canPlay && nodeData.isRoot },
+        };
+      }
+      return {
+        ...n,
+        data: {
+          ...(n.data as object),
+          execStatus: ne.status,
+          execStartedAt: ne.startedAt,
+          execCompletedAt: ne.completedAt,
+          execErrorMessage: ne.errorMessage,
+          execAttempt: ne.attempt,
+          execOutputPaths: ne.outputArtifactPaths,
+          execNodeExecutionId: ne.id,
+          execCanPlay: canPlay,
+        },
+      };
+    });
+  }, [rfNodes, rfEdges, activeExecution, nodeExecutions]);
+
+  // ── Auth guard ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authLoading && !isAuthenticated) navigate('/login');
   }, [isAuthenticated, authLoading, navigate]);
@@ -193,11 +241,34 @@ export default function WorkflowCanvasPage() {
     enabled: !!id && isAuthenticated,
   });
 
-  const { data: files = [] } = useQuery({
-    queryKey: ['files'],
-    queryFn: filesService.list,
-    enabled: isAuthenticated,
+  // ── Load latest running execution for this workflow on mount ──────────────
+  const { data: latestExecution } = useQuery({
+    queryKey: ['latestExecution', id],
+    queryFn: async () => {
+      const all = await executionsService.list();
+      const forWorkflow = all
+        .filter((e) => e.workflowId === id && (e.status === 'Running' || e.status === 'Pending'))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return forWorkflow[0] ?? null;
+    },
+    enabled: !!id && isAuthenticated,
   });
+
+  // Seed execution state from the latest running execution (once)
+  const seededExecutionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      latestExecution &&
+      latestExecution.id !== seededExecutionRef.current &&
+      !activeExecution
+    ) {
+      seededExecutionRef.current = latestExecution.id;
+      setActiveExecution(latestExecution);
+      setNodeExecutions(latestExecution.nodeExecutions);
+      setExecStatus(latestExecution.status);
+      setShowDrawer(true);
+    }
+  }, [latestExecution, activeExecution]);
 
   const handleConfigChange = useCallback((nodeId: string, configJson: string) => {
     setRfNodes((prev) =>
@@ -233,15 +304,19 @@ export default function WorkflowCanvasPage() {
   const rfEdgesRef = useRef<Edge[]>([]);
   useEffect(() => { rfEdgesRef.current = rfEdges; }, [rfEdges]);
 
-  // Seed RF state once workflow loads
+  // Seed RF state once per workflow id. Keyed on a ref (not rfNodes.length) so that emptying
+  // the canvas without saving does not re-fire this and resurrect the deleted nodes from the
+  // still-cached workflow query.
+  const seededWorkflowRef = useRef<string | null>(null);
   useEffect(() => {
-    if (workflow && rfNodes.length === 0) {
+    if (workflow && seededWorkflowRef.current !== workflow.id) {
+      seededWorkflowRef.current = workflow.id;
       originalNodesRef.current = workflow.nodes;
       const { rfNodes: n, rfEdges: e } = toRF(workflow.nodes);
       setRfNodes(n);
       setRfEdges(e);
     }
-  }, [workflow, rfNodes.length]);
+  }, [workflow]);
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => {
@@ -334,13 +409,90 @@ export default function WorkflowCanvasPage() {
     },
   });
 
+  // ── Execute: stay on canvas, populate execution state ────────────────────
   const executeMutation = useMutation({
-    mutationFn: async (fileId: string) => {
+    mutationFn: async (args: { fileId: string; trimStart?: number; trimEnd?: number }) => {
       if (!saved) await saveMutation.mutateAsync();
-      return executionsService.start(id!, fileId);
+      return executionsService.start(id!, args.fileId, args.trimStart, args.trimEnd);
     },
-    onSuccess: (execution) => navigate(`/executions/${execution.id}`),
+    onSuccess: (execution) => {
+      setActiveExecution(execution);
+      setNodeExecutions(execution.nodeExecutions);
+      setExecStatus(execution.status);
+      setShowDrawer(true);
+      setShowExecuteDialog(false);
+    },
   });
+
+  // ── Re-run: same file and trim range, new execution ─────────────────────
+  const reRunMutation = useMutation({
+    mutationFn: async () => {
+      if (!activeExecution) throw new Error('No execution to re-run');
+      if (!saved) await saveMutation.mutateAsync();
+      return executionsService.start(
+        id!,
+        activeExecution.inputFile.id,
+        activeExecution.trimStartSeconds,
+        activeExecution.trimEndSeconds,
+      );
+    },
+    onSuccess: (execution) => {
+      setActiveExecution(execution);
+      setNodeExecutions(execution.nodeExecutions);
+      setExecStatus(execution.status);
+    },
+  });
+
+  // ── Cancel the active execution ──────────────────────────────────────────
+  const cancelMutation = useMutation({
+    mutationFn: () => executionsService.cancel(activeExecution!.id),
+    onSuccess: (updated) => {
+      setActiveExecution(updated);
+      setNodeExecutions(updated.nodeExecutions);
+      setExecStatus(updated.status);
+    },
+  });
+
+  // ── Retry a specific failed node ─────────────────────────────────────────
+  const retryMutation = useMutation({
+    mutationFn: ({ nodeExecutionId }: { nodeExecutionId: string }) =>
+      executionsService.retry(activeExecution!.id, nodeExecutionId),
+    onSuccess: (updated) => {
+      // Retry returns a NEW node execution (new id, attempt+1) for the same workflow node;
+      // replace by workflowNodeId so the new attempt supersedes the old failed row and its
+      // subsequent SSE events (keyed on the new id) land on it.
+      setNodeExecutions((prev) => upsertNodeExecution(prev, updated));
+      // The retry endpoint moves the execution back to Running server-side. Reset the local
+      // status so it's no longer terminal, which re-enables the SSE stream — otherwise a retry
+      // triggered from a terminal (Failed/PartiallyFailed) run would complete on the server but
+      // never stream its progress back to the canvas.
+      setExecStatus('Running');
+    },
+  });
+
+  // ── Play node: retry failed, or re-run from this node ────────────────────
+  const handlePlayNode = useCallback(
+    (workflowNodeId: string) => {
+      // No active execution → open execute dialog to start a fresh run
+      if (!activeExecution) {
+        setShowExecuteDialog(true);
+        return;
+      }
+
+      // Find the node execution for this workflow node
+      const ne = nodeExecutions.find((n) => n.workflowNodeId === workflowNodeId);
+
+      if (ne && ne.status === 'Failed') {
+        // Retry the failed node via API
+        retryMutation.mutate({ nodeExecutionId: ne.id });
+      } else {
+        // Re-run: start a brand-new execution with the same input file
+        // This re-runs the entire workflow from scratch (backend limitation)
+        reRunMutation.mutate();
+      }
+    },
+    [activeExecution, nodeExecutions, retryMutation, reRunMutation],
+  );
 
   if (authLoading || isLoading || !workflow) {
     return (
@@ -349,6 +501,9 @@ export default function WorkflowCanvasPage() {
       </div>
     );
   }
+
+  const currentExecStatus = execStatus ?? activeExecution?.status ?? null;
+  const isRunning = currentExecStatus === 'Running' || currentExecStatus === 'Pending';
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
@@ -367,11 +522,17 @@ export default function WorkflowCanvasPage() {
           {!saved && (
             <span className="text-xs text-amber-600 font-medium shrink-0">● Unsaved</span>
           )}
+          {/* Running indicator */}
+          {isRunning && (
+            <span className="text-xs text-blue-600 font-medium shrink-0 animate-pulse">● Running</span>
+          )}
           <div className="flex items-center gap-2 shrink-0">
             <Button
               variant="outline"
               size="sm"
               onClick={handleAddNode}
+              disabled={isRunning}
+              title={isRunning ? 'Editing is disabled while an execution is running' : undefined}
             >
               + Add Node
             </Button>
@@ -379,13 +540,38 @@ export default function WorkflowCanvasPage() {
               variant="outline"
               size="sm"
               onClick={() => saveMutation.mutate()}
-              disabled={saveMutation.isPending || saved}
+              disabled={saveMutation.isPending || saved || isRunning}
+              title={isRunning ? 'Saving is disabled while an execution is running' : undefined}
             >
               {saveMutation.isPending ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
             </Button>
-            <Button size="sm" onClick={() => setShowExecuteDialog(true)}>
+            <Button
+              size="sm"
+              onClick={() => setShowExecuteDialog(true)}
+              disabled={isRunning}
+            >
               ⚡ Execute
             </Button>
+            {isRunning && activeExecution && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => cancelMutation.mutate()}
+                disabled={cancelMutation.isPending}
+              >
+                {cancelMutation.isPending ? 'Cancelling…' : '⨯ Cancel'}
+              </Button>
+            )}
+            {activeExecution && !isRunning && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => reRunMutation.mutate()}
+                disabled={reRunMutation.isPending}
+              >
+                {reRunMutation.isPending ? 'Starting…' : '↻ Re-run'}
+              </Button>
+            )}
           </div>
           <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')}>
             ← Back
@@ -397,10 +583,10 @@ export default function WorkflowCanvasPage() {
       <main className="flex-1 flex overflow-hidden" style={{ minHeight: 0 }}>
         {/* Canvas */}
         <div className="flex-1 relative overflow-hidden">
-          <NodeCallbacksContext.Provider value={{ onConfigChange: handleConfigChange, onRemove: handleRemoveNode }}>
+          <NodeCallbacksContext.Provider value={{ onConfigChange: handleConfigChange, onRemove: handleRemoveNode, onPlayNode: handlePlayNode }}>
             <div style={{ position: 'absolute', inset: 0 }}>
             <ReactFlow
-              nodes={rfNodes}
+              nodes={rfNodesWithExec}
               edges={rfEdges}
               nodeTypes={nodeTypes}
               onNodesChange={onNodesChange}
@@ -447,6 +633,21 @@ export default function WorkflowCanvasPage() {
         })()}
       </main>
 
+      {/* Execution Drawer */}
+      {showDrawer && activeExecution && (
+        <ExecutionDrawer
+          nodeExecutions={nodeExecutions}
+          workflowNodes={workflow.nodes}
+          executionStatus={currentExecStatus}
+          executionInputFileName={activeExecution.inputFile.originalFileName}
+          executionCreatedAt={activeExecution.createdAt}
+          onRetryNode={(nodeExecutionId) => retryMutation.mutate({ nodeExecutionId })}
+          isRetrying={retryMutation.isPending}
+          onReRun={() => reRunMutation.mutate()}
+          onClose={() => setShowDrawer(false)}
+        />
+      )}
+
       {/* Save error */}
       {saveMutation.isError && (
         <div className="fixed bottom-4 right-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-red-700 text-sm shadow-md z-50">
@@ -454,12 +655,18 @@ export default function WorkflowCanvasPage() {
         </div>
       )}
 
+      {/* Execute error */}
+      {executeMutation.isError && (
+        <div className="fixed bottom-4 right-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-red-700 text-sm shadow-md z-50">
+          Execute failed: {(executeMutation.error as Error).message}
+        </div>
+      )}
+
       {/* Execute Dialog */}
       {showExecuteDialog && (
-        <ExecuteDialog
-          files={files}
+        <ExecuteTrimDialog
           isPending={executeMutation.isPending}
-          onExecute={(fileId) => executeMutation.mutate(fileId)}
+          onExecute={(args) => executeMutation.mutate(args)}
           onClose={() => setShowExecuteDialog(false)}
         />
       )}

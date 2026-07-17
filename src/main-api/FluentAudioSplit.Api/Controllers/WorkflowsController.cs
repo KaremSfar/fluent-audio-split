@@ -189,7 +189,9 @@ public class WorkflowsController : ControllerBase
             WorkflowVersionId = latestVersion.Id,
             UserId = userId,
             InputFileRecordId = fileRecord.Id,
-            Status = WorkflowExecutionStatus.Pending
+            Status = WorkflowExecutionStatus.Pending,
+            TrimStartSeconds = request.TrimStartSeconds,
+            TrimEndSeconds = request.TrimEndSeconds
         };
 
         db.WorkflowExecutions.Add(execution);
@@ -224,7 +226,9 @@ public class WorkflowsController : ControllerBase
                 NodeType = nodeDef.NodeType,
                 InputArtifactPath = nodeExec.InputArtifactPath ?? string.Empty,
                 OutputArtifactDir = nodeExec.OutputArtifactDir ?? string.Empty,
-                ConfigJson = nodeDef.ConfigJson
+                ConfigJson = nodeDef.ConfigJson,
+                TrimStartSeconds = execution.TrimStartSeconds,
+                TrimEndSeconds = execution.TrimEndSeconds
             }, ct);
         }
 
@@ -236,13 +240,36 @@ public class WorkflowsController : ControllerBase
         return Ok(new WorkflowExecutionDto(
             execution.Id,
             execution.WorkflowId,
+            execution.WorkflowVersionId,
             workflow.Name,
-            new FileRecordDto(fileRecord.Id, fileRecord.OriginalFileName, fileRecord.ContentType, fileRecord.SizeBytes, fileRecord.CreatedAt),
+            new FileRecordDto(fileRecord.Id, fileRecord.OriginalFileName, fileRecord.ContentType, fileRecord.SizeBytes, fileRecord.CreatedAt, fileRecord.ContentHash),
             execution.Status.ToString(),
-            nodeExecs.Select(ne => new NodeExecutionDto(ne.Id, ne.WorkflowNodeId, ne.Attempt, ne.Status.ToString(), ne.OutputArtifactDir, ne.OutputArtifactPathsJson != null ? JsonSerializer.Deserialize<Dictionary<string, string>>(ne.OutputArtifactPathsJson) ?? new() : new(), ne.ErrorMessage, ne.StartedAt, ne.CompletedAt)).ToList(),
+            nodeExecs.Select(ne =>
+            {
+                var def = rootNodes.FirstOrDefault(n => n.Id == ne.WorkflowNodeId);
+                return new NodeExecutionDto(
+                    ne.Id, ne.WorkflowNodeId, ne.Attempt, ne.Status.ToString(), ne.OutputArtifactDir,
+                    ne.OutputArtifactPathsJson != null ? JsonSerializer.Deserialize<Dictionary<string, string>>(ne.OutputArtifactPathsJson) ?? new() : new(),
+                    ne.ErrorMessage, ne.StartedAt, ne.CompletedAt,
+                    def != null ? $"Node {def.Order + 1}" : null,
+                    def != null ? ExtractModelName(def.ConfigJson) : null);
+            }).ToList(),
             execution.CreatedAt,
             execution.CompletedAt,
-            execution.ErrorMessage));
+            execution.ErrorMessage,
+            execution.TrimStartSeconds,
+            execution.TrimEndSeconds));
+    }
+
+    private static string? ExtractModelName(string? configJson)
+    {
+        if (string.IsNullOrWhiteSpace(configJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(configJson);
+            return doc.RootElement.TryGetProperty("modelName", out var m) ? m.GetString() : null;
+        }
+        catch { return null; }
     }
 
     private static List<WorkflowNodeDefinition> DeserializeNodes(string json) =>

@@ -90,6 +90,9 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ContentHash")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ContentType")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -212,6 +215,12 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("INTEGER");
+
+                    b.Property<double?>("TrimEndSeconds")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("TrimStartSeconds")
+                        .HasColumnType("REAL");
 
                     b.Property<string>("UserId")
                         .IsRequired()

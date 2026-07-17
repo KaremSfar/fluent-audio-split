@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using FluentAudioSplit.Api.Dtos;
 using FluentAudioSplit.Domain.Entities;
 using FluentAudioSplit.Infrastructure.Persistence;
@@ -35,8 +36,13 @@ public class FilesController : ControllerBase
         var fileId = Guid.NewGuid();
         var relativePath = $"uploads/{userId}/{fileId}/{file.FileName}";
 
-        await using var stream = file.OpenReadStream();
-        await _storage.WriteAsync(relativePath, stream, ct);
+        using var buffer = new MemoryStream();
+        await file.CopyToAsync(buffer, ct);
+        var bytes = buffer.ToArray();
+        var contentHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+        buffer.Position = 0;
+        await _storage.WriteAsync(relativePath, buffer, ct);
 
         var record = new FileRecord
         {
@@ -46,6 +52,7 @@ public class FilesController : ControllerBase
             StoragePath = relativePath,
             ContentType = file.ContentType,
             SizeBytes = file.Length,
+            ContentHash = contentHash,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -53,6 +60,22 @@ public class FilesController : ControllerBase
         db.FileRecords.Add(record);
         await db.SaveChangesAsync(ct);
 
+        return Ok(ToDto(record));
+    }
+
+    [HttpGet("by-hash/{hash}")]
+    public async Task<ActionResult<FileRecordDto>> FindByHash(string hash, CancellationToken ct)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(hash, "^[a-f0-9]{64}$"))
+            return BadRequest("Invalid hash format.");
+
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var record = await db.FileRecords
+            .FirstOrDefaultAsync(f => f.UserId == userId && f.ContentHash == hash, ct);
+
+        if (record is null) return NotFound();
         return Ok(ToDto(record));
     }
 
@@ -111,5 +134,5 @@ public class FilesController : ControllerBase
     }
 
     private static FileRecordDto ToDto(FileRecord r) =>
-        new(r.Id, r.OriginalFileName, r.ContentType, r.SizeBytes, r.CreatedAt);
+        new(r.Id, r.OriginalFileName, r.ContentType, r.SizeBytes, r.CreatedAt, r.ContentHash);
 }

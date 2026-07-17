@@ -6,18 +6,8 @@ import { executionsService } from '@/services/executionsService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { WorkflowExecutionStatus } from '@/types/execution';
-
-function statusColor(status: WorkflowExecutionStatus): string {
-  switch (status) {
-    case 'Completed': return 'bg-green-100 text-green-800';
-    case 'Running': return 'bg-blue-100 text-blue-800';
-    case 'Failed': return 'bg-red-100 text-red-800';
-    case 'PartiallyFailed': return 'bg-yellow-100 text-yellow-800';
-    case 'Cancelled': return 'bg-gray-100 text-gray-600';
-    default: return 'bg-gray-100 text-gray-800';
-  }
-}
+import { StatusBadge } from '@/components/execution/StatusBadge';
+import { AppHeader } from '@/components/layout/AppHeader';
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -50,17 +40,11 @@ export default function ExecutionsListPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 hover:opacity-80">
-            <span className="text-xl">🎵</span>
-            <span className="font-semibold text-foreground">Fluent Audio Split</span>
-          </button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/dashboard')}>
-            ← Dashboard
-          </Button>
-        </div>
-      </header>
+      <AppHeader onLogoClick={() => navigate('/dashboard')}>
+        <Button variant="outline" size="sm" onClick={() => navigate('/dashboard')}>
+          ← Dashboard
+        </Button>
+      </AppHeader>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="flex items-center justify-between">
@@ -96,11 +80,7 @@ export default function ExecutionsListPage() {
                         {ex.inputFile?.originalFileName ?? '—'}
                       </TableCell>
                       <TableCell>
-                        <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusColor(ex.status)}`}
-                        >
-                          {ex.status}
-                        </span>
+                        <StatusBadge status={ex.status} />
                       </TableCell>
                       <TableCell className="text-muted-foreground">{formatDate(ex.createdAt)}</TableCell>
                       <TableCell className="text-right">
