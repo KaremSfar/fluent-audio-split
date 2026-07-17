@@ -40,7 +40,7 @@ export type AudioSeparationRFNode = {
 
 function AudioSeparationNode({ data, selected }: NodeProps) {
   const {
-    nodeId, configJson, isRoot, nodeIndex,
+    nodeId, configJson, nodeIndex,
     execStatus, execStartedAt, execCompletedAt, execErrorMessage,
     execCanPlay,
   } = data as unknown as AudioSeparationNodeData;
@@ -141,15 +141,13 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
             {playLabel}
           </button>
         )}
-        {!isRoot && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onRemove(nodeId as string); }}
-            className="ml-1 text-violet-200 hover:text-white text-xs shrink-0"
-            title="Remove node"
-          >
-            ✕
-          </button>
-        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemove(nodeId as string); }}
+          className="ml-1 text-violet-200 hover:text-white text-xs shrink-0"
+          title="Remove node"
+        >
+          ✕
+        </button>
       </div>
 
       {/* Model label */}

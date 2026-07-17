@@ -3,18 +3,23 @@ import { useAuth } from '@/auth/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AppHeader } from '@/components/layout/AppHeader';
-import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { ExecuteTrimDialog } from '@/components/execution/ExecuteTrimDialog';
+import { Play, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { workflowsService } from '@/services/workflowsService';
+import { executionsService } from '@/services/executionsService';
+import type { Workflow } from '@/types/workflow';
 
 const NAV_CARDS = [
-  { emoji: '⚡', title: 'Run Workflow', description: 'Create and start a new execution', path: '/workflows/new' },
   { emoji: '📋', title: 'Execution History', description: 'View past and running executions', path: '/executions' },
 ];
 
 export default function DashboardPage() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [workflowToRun, setWorkflowToRun] = useState<Workflow | null>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -27,6 +32,35 @@ export default function DashboardPage() {
     queryFn: workflowsService.list,
     enabled: isAuthenticated,
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: workflowsService.delete,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workflows'] });
+    },
+    onError: () => {
+      window.alert('Unable to delete this workflow. Please try again.');
+    },
+  });
+
+  const executeMutation = useMutation({
+    mutationFn: (args: { fileId: string; trimStart?: number; trimEnd?: number }) => {
+      if (!workflowToRun) throw new Error('Choose a workflow before starting an execution.');
+      return executionsService.start(workflowToRun.id, args.fileId, args.trimStart, args.trimEnd);
+    },
+    onSuccess: (execution) => {
+      void queryClient.invalidateQueries({ queryKey: ['executions'] });
+      setWorkflowToRun(null);
+      navigate(`/executions/${execution.id}`);
+    },
+  });
+
+  const handleDelete = (event: React.MouseEvent<HTMLButtonElement>, workflow: Workflow) => {
+    event.stopPropagation();
+    if (window.confirm(`Delete workflow "${workflow.name}"? It will be removed from your workflow list, but its execution history will remain available.`)) {
+      deleteMutation.mutate(workflow.id);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -94,20 +128,65 @@ export default function DashboardPage() {
                 {workflows.map((wf) => (
                   <Card
                     key={wf.id}
-                    className="cursor-pointer hover:shadow-md transition-shadow"
+                    className="cursor-pointer hover:shadow-md transition-shadow focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    role="link"
+                    tabIndex={0}
                     onClick={() => navigate(`/workflows/${wf.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.currentTarget === event.target && (event.key === 'Enter' || event.key === ' ')) {
+                        event.preventDefault();
+                        navigate(`/workflows/${wf.id}`);
+                      }
+                    }}
                   >
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-base flex items-center gap-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <CardTitle className="text-base flex items-center gap-2">
                         <span>🔧</span>
                         {wf.name}
-                      </CardTitle>
+                        </CardTitle>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          aria-label={`Delete workflow ${wf.name}`}
+                          title={`Delete workflow ${wf.name}`}
+                          disabled={deleteMutation.isPending}
+                          onClick={(event) => handleDelete(event, wf)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
                       <CardDescription className="text-xs">
                         {wf.nodes.length} node{wf.nodes.length !== 1 ? 's' : ''} · Updated {new Date(wf.updatedAt).toLocaleDateString()}
                       </CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      <Button variant="outline" size="sm" className="w-full">Open →</Button>
+                    <CardContent className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="flex-1"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setWorkflowToRun(wf);
+                        }}
+                      >
+                        <Play />
+                        Run
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          navigate(`/workflows/${wf.id}`);
+                        }}
+                      >
+                        Open →
+                      </Button>
                     </CardContent>
                   </Card>
                 ))}
@@ -116,6 +195,13 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+      {workflowToRun && (
+        <ExecuteTrimDialog
+          isPending={executeMutation.isPending}
+          onExecute={(args) => executeMutation.mutate(args)}
+          onClose={() => setWorkflowToRun(null)}
+        />
+      )}
     </div>
   );
 }

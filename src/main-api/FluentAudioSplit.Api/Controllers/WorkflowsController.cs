@@ -76,7 +76,7 @@ public class WorkflowsController : ControllerBase
 
         var workflows = await db.Workflows
             .Include(w => w.Versions)
-            .Where(w => w.UserId == userId)
+            .Where(w => w.UserId == userId && w.DeletedAt == null)
             .OrderByDescending(w => w.CreatedAt)
             .ToListAsync(ct);
 
@@ -96,7 +96,7 @@ public class WorkflowsController : ControllerBase
 
         var workflow = await db.Workflows
             .Include(w => w.Versions)
-            .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId, ct);
+            .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId && w.DeletedAt == null, ct);
 
         if (workflow is null) return NotFound();
 
@@ -113,7 +113,7 @@ public class WorkflowsController : ControllerBase
 
         var workflow = await db.Workflows
             .Include(w => w.Versions)
-            .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId, ct);
+            .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId && w.DeletedAt == null, ct);
 
         if (workflow is null) return NotFound();
 
@@ -151,10 +151,12 @@ public class WorkflowsController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-        var workflow = await db.Workflows.FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId, ct);
+        var workflow = await db.Workflows
+            .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId && w.DeletedAt == null, ct);
         if (workflow is null) return NotFound();
 
-        db.Workflows.Remove(workflow);
+        workflow.DeletedAt = DateTime.UtcNow;
+        workflow.UpdatedAt = workflow.DeletedAt.Value;
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
@@ -171,7 +173,7 @@ public class WorkflowsController : ControllerBase
 
         var workflow = await db.Workflows
             .Include(w => w.Versions)
-            .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId, ct);
+            .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId && w.DeletedAt == null, ct);
 
         if (workflow is null) return NotFound("Workflow not found.");
 

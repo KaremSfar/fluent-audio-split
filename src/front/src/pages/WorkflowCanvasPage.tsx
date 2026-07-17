@@ -321,13 +321,16 @@ export default function WorkflowCanvasPage() {
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => {
       setRfNodes((nds) => applyNodeChanges(changes, nds));
-      // Deselect panel when a node is deleted
       const removals = changes.filter((c) => c.type === 'remove');
       if (removals.length > 0) {
+        const removedIds = new Set(removals.map((c) => c.id));
+        setRfEdges((eds) =>
+          eds.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)),
+        );
         setSelectedNodeId((prev) => {
-          const removedIds = new Set(removals.map((c) => c.id));
           return prev && removedIds.has(prev) ? null : prev;
         });
+        setSaved(false);
       }
     },
     [],
