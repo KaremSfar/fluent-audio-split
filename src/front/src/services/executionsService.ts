@@ -2,8 +2,17 @@ import apiClient from './apiClient';
 import type { WorkflowExecution, NodeExecution } from '../types/execution';
 
 export const executionsService = {
-  start: async (workflowId: string, fileId: string): Promise<WorkflowExecution> => {
-    const { data } = await apiClient.post<WorkflowExecution>(`/workflows/${workflowId}/execute`, { fileId });
+  start: async (
+    workflowId: string,
+    fileId: string,
+    trimStartSeconds?: number,
+    trimEndSeconds?: number,
+  ): Promise<WorkflowExecution> => {
+    const { data } = await apiClient.post<WorkflowExecution>(`/workflows/${workflowId}/execute`, {
+      fileId,
+      trimStartSeconds,
+      trimEndSeconds,
+    });
     return data;
   },
   list: async (): Promise<WorkflowExecution[]> => {

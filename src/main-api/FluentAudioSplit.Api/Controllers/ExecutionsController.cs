@@ -131,7 +131,9 @@ public class ExecutionsController : ControllerBase
             NodeType = nodeDef?.NodeType ?? string.Empty,
             InputArtifactPath = newNodeExec.InputArtifactPath ?? string.Empty,
             OutputArtifactDir = newNodeExec.OutputArtifactDir ?? string.Empty,
-            ConfigJson = nodeDef?.ConfigJson ?? "{}"
+            ConfigJson = nodeDef?.ConfigJson ?? "{}",
+            TrimStartSeconds = nodeDef?.SourceNodeId == null ? execution.TrimStartSeconds : null,
+            TrimEndSeconds = nodeDef?.SourceNodeId == null ? execution.TrimEndSeconds : null
         }, ct);
 
         return Ok(NodeExecToDto(newNodeExec, nodeDef));
@@ -235,13 +237,15 @@ public class ExecutionsController : ControllerBase
             we.WorkflowVersionId,
             we.WorkflowVersion?.Workflow?.Name ?? string.Empty,
             we.InputFileRecord is not null
-                ? new FileRecordDto(we.InputFileRecord.Id, we.InputFileRecord.OriginalFileName, we.InputFileRecord.ContentType, we.InputFileRecord.SizeBytes, we.InputFileRecord.CreatedAt)
-                : new FileRecordDto(we.InputFileRecordId, string.Empty, string.Empty, 0, DateTime.MinValue),
+                ? new FileRecordDto(we.InputFileRecord.Id, we.InputFileRecord.OriginalFileName, we.InputFileRecord.ContentType, we.InputFileRecord.SizeBytes, we.InputFileRecord.CreatedAt, we.InputFileRecord.ContentHash)
+                : new FileRecordDto(we.InputFileRecordId, string.Empty, string.Empty, 0, DateTime.MinValue, null),
             we.Status.ToString(),
             we.NodeExecutions?.Select(ne => NodeExecToDto(ne, defsById.GetValueOrDefault(ne.WorkflowNodeId))).ToList() ?? new(),
             we.CreatedAt,
             we.CompletedAt,
-            we.ErrorMessage);
+            we.ErrorMessage,
+            we.TrimStartSeconds,
+            we.TrimEndSeconds);
     }
 
     private static NodeExecutionDto NodeExecToDto(NodeExecution ne, WorkflowNodeDefinition? def = null) => new(

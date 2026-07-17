@@ -8,7 +8,6 @@ import { useQuery } from '@tanstack/react-query';
 import { workflowsService } from '@/services/workflowsService';
 
 const NAV_CARDS = [
-  { emoji: '🎵', title: 'My Files', description: 'Upload and manage audio files', path: '/files' },
   { emoji: '⚡', title: 'Run Workflow', description: 'Create and start a new execution', path: '/workflows/new' },
   { emoji: '📋', title: 'Execution History', description: 'View past and running executions', path: '/executions' },
 ];

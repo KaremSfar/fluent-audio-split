@@ -8,4 +8,6 @@ public record ProcessNodeCommand
     public string InputArtifactPath { get; init; } = string.Empty;
     public string OutputArtifactDir { get; init; } = string.Empty;
     public string ConfigJson { get; init; } = "{}";
+    public double? TrimStartSeconds { get; init; }
+    public double? TrimEndSeconds { get; init; }
 }

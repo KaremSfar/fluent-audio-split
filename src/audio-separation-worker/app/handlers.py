@@ -1,7 +1,9 @@
 import json
 import logging
+import tempfile
 from pathlib import Path
 
+from app.audio_trim import trim_audio
 from app.model_registry import get_model_entry
 from app.publisher import publish_node_completed, publish_node_failed, publish_node_started
 from app.separator import create_audio_separator
@@ -45,6 +47,11 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
     config = json.loads(payload.get("configJson", "{}"))
 
     try:
+        trim_start: float | None = payload.get("trimStartSeconds")
+        trim_end: float | None = payload.get("trimEndSeconds")
+        if trim_start is not None and trim_end is not None and trim_end <= trim_start:
+            raise ValueError("trimEndSeconds must be greater than trimStartSeconds")
+
         model_name = config.get("modelName")
         if not model_name:
             raise ValueError(
@@ -95,6 +102,13 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
         abs_output_dir = storage.get_absolute_path(output_dir)
         abs_output_dir.mkdir(parents=True, exist_ok=True)
 
+        trim_stack = None
+        if trim_start is not None or trim_end is not None:
+            trim_stack = tempfile.TemporaryDirectory()
+            trimmed_path = Path(trim_stack.name) / "trimmed_input.wav"
+            trim_audio(abs_input, trimmed_path, trim_start, trim_end)
+            abs_input = trimmed_path
+
         logger.info(
             "Separating %s with model %s → %s", abs_input, model_name, abs_output_dir
         )
@@ -103,13 +117,17 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
 
         publish_node_started(workflow_execution_id, node_execution_id)
 
-        separator = create_audio_separator()
-        output_files = separator.separate(
-            abs_input, abs_output_dir, model_name, output_names,
-            extra_models=ensemble_models if ensemble_enabled else None,
-            ensemble_algorithm=ensemble_algorithm,
-            advanced_params=advanced_params,
-        )
+        try:
+            separator = create_audio_separator()
+            output_files = separator.separate(
+                abs_input, abs_output_dir, model_name, output_names,
+                extra_models=ensemble_models if ensemble_enabled else None,
+                ensemble_algorithm=ensemble_algorithm,
+                advanced_params=advanced_params,
+            )
+        finally:
+            if trim_stack is not None:
+                trim_stack.cleanup()
 
         abs_base = storage.get_absolute_path("").resolve()
         output_map: dict[str, str] = {}

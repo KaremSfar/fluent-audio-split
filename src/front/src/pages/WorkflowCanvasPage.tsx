@@ -21,19 +21,17 @@ import dagre from '@dagrejs/dagre';
 import { useAuth } from '@/auth/useAuth';
 import { workflowsService } from '@/services/workflowsService';
 import { executionsService } from '@/services/executionsService';
-import { filesService } from '@/services/filesService';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AudioSeparationNode, {
   NodeCallbacksContext,
   type AudioSeparationNodeData,
 } from '@/components/AudioSeparationNode';
 import { NodeSidePanel } from '@/components/NodeSidePanel';
 import { ExecutionDrawer } from '@/components/execution/ExecutionDrawer';
+import { ExecuteTrimDialog } from '@/components/execution/ExecuteTrimDialog';
 import { useExecutionStream } from '@/hooks/useExecutionStream';
 import { applyNodeStatusEvent, upsertNodeExecution } from '@/lib/executionState';
 import type { WorkflowNode } from '@/types/workflow';
-import type { FileRecord } from '@/types/file';
 import type {
   WorkflowExecution,
   WorkflowExecutionStatus,
@@ -44,64 +42,6 @@ import type {
 
 // ── React Flow node types registry ────────────────────────────────────────────
 const nodeTypes = { audioSeparation: AudioSeparationNode };
-
-// ── Execute Dialog ─────────────────────────────────────────────────────────────
-function ExecuteDialog({
-  files,
-  onExecute,
-  onClose,
-  isPending,
-}: {
-  files: FileRecord[];
-  onExecute: (fileId: string) => void;
-  onClose: () => void;
-  isPending: boolean;
-}) {
-  const navigate = useNavigate();
-  const [selectedFileId, setSelectedFileId] = useState(files[0]?.id ?? '');
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <Card className="w-full max-w-sm mx-4">
-        <CardHeader>
-          <CardTitle>Run Workflow</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-sm font-medium">Select audio file</label>
-            {files.length === 0 ? (
-              <div className="text-sm text-muted-foreground space-y-2">
-                <p>No files uploaded yet.</p>
-                <Button variant="outline" size="sm" onClick={() => navigate('/files')}>
-                  Upload a file →
-                </Button>
-              </div>
-            ) : (
-              <select
-                value={selectedFileId}
-                onChange={(e) => setSelectedFileId(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {files.map((f) => (
-                  <option key={f.id} value={f.id}>{f.originalFileName}</option>
-                ))}
-              </select>
-            )}
-          </div>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
-            <Button
-              disabled={!selectedFileId || isPending}
-              onClick={() => onExecute(selectedFileId)}
-            >
-              {isPending ? 'Starting…' : '⚡ Run'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
 
 // ── Dagre layout (left → right) ───────────────────────────────────────────────
 const NODE_WIDTH = 288; // w-72
@@ -301,12 +241,6 @@ export default function WorkflowCanvasPage() {
     enabled: !!id && isAuthenticated,
   });
 
-  const { data: files = [] } = useQuery({
-    queryKey: ['files'],
-    queryFn: filesService.list,
-    enabled: isAuthenticated,
-  });
-
   // ── Load latest running execution for this workflow on mount ──────────────
   const { data: latestExecution } = useQuery({
     queryKey: ['latestExecution', id],
@@ -477,9 +411,9 @@ export default function WorkflowCanvasPage() {
 
   // ── Execute: stay on canvas, populate execution state ────────────────────
   const executeMutation = useMutation({
-    mutationFn: async (fileId: string) => {
+    mutationFn: async (args: { fileId: string; trimStart?: number; trimEnd?: number }) => {
       if (!saved) await saveMutation.mutateAsync();
-      return executionsService.start(id!, fileId);
+      return executionsService.start(id!, args.fileId, args.trimStart, args.trimEnd);
     },
     onSuccess: (execution) => {
       setActiveExecution(execution);
@@ -490,12 +424,17 @@ export default function WorkflowCanvasPage() {
     },
   });
 
-  // ── Re-run: same file, new execution ─────────────────────────────────────
+  // ── Re-run: same file and trim range, new execution ─────────────────────
   const reRunMutation = useMutation({
     mutationFn: async () => {
       if (!activeExecution) throw new Error('No execution to re-run');
       if (!saved) await saveMutation.mutateAsync();
-      return executionsService.start(id!, activeExecution.inputFile.id);
+      return executionsService.start(
+        id!,
+        activeExecution.inputFile.id,
+        activeExecution.trimStartSeconds,
+        activeExecution.trimEndSeconds,
+      );
     },
     onSuccess: (execution) => {
       setActiveExecution(execution);
@@ -725,10 +664,9 @@ export default function WorkflowCanvasPage() {
 
       {/* Execute Dialog */}
       {showExecuteDialog && (
-        <ExecuteDialog
-          files={files}
+        <ExecuteTrimDialog
           isPending={executeMutation.isPending}
-          onExecute={(fileId) => executeMutation.mutate(fileId)}
+          onExecute={(args) => executeMutation.mutate(args)}
           onClose={() => setShowExecuteDialog(false)}
         />
       )}

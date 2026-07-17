@@ -239,8 +239,7 @@
   },
   "BS-Roformer-SW.ckpt": {
     "arch": "mdxc",
-    "category": "splitter",
-    "error": "declared stems ['Vocals', 'Instrumental'] could not be unambiguously paired with real SDK stems ['bass', 'drums', 'other', 'vocals', 'guitar', 'piano'] (count mismatch or no confident name match) \u2014 needs manual review",
+    "category": "multistem",
     "label": "BS Roformer SW by jarredou",
     "real_stems": [
       "bass",
@@ -250,10 +249,22 @@
       "guitar",
       "piano"
     ],
-    "status": "error",
+    "status": "ok",
+    "stem_map": {
+      "Bass": "bass",
+      "Drums": "drums",
+      "Guitar": "guitar",
+      "Other": "other",
+      "Piano": "piano",
+      "Vocals": "vocals"
+    },
     "stems": [
+      "Bass",
+      "Drums",
+      "Other",
       "Vocals",
-      "Instrumental"
+      "Guitar",
+      "Piano"
     ]
   },
   "Kim_Inst.onnx": {
@@ -430,6 +441,76 @@
     "stems": [
       "Instrumental",
       "Vocals"
+    ]
+  },
+  "MelBandRoformerBigSYHFTV1.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | Big SYHFT V1 by SYH99999",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "MelBandRoformerSYHFT.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | SYHFT by SYH99999",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "MelBandRoformerSYHFTV2.5.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | SYHFT V2.5 by SYH99999",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "MelBandRoformerSYHFTV2.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | SYHFT V2 by SYH99999",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "MelBandRoformerSYHFTV3Epsilon.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | SYHFT V3 by SYH99999",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
     ]
   },
   "Reverb_HQ_By_FoxJoy.onnx": {
@@ -933,18 +1014,49 @@
       "Instrumental"
     ]
   },
+  "aspiration_mel_band_roformer_less_aggr_sdr_18.1201.ckpt": {
+    "arch": "mdxc",
+    "category": "specialty",
+    "label": "MelBand Roformer | Aspiration Less Aggressive by Sucial",
+    "status": "ok",
+    "stem_map": {
+      "Aspiration": "aspiration",
+      "Other": "other"
+    },
+    "stems": [
+      "Aspiration",
+      "Other"
+    ]
+  },
+  "aspiration_mel_band_roformer_sdr_18.9845.ckpt": {
+    "arch": "mdxc",
+    "category": "specialty",
+    "label": "MelBand Roformer | Aspiration by Sucial",
+    "status": "ok",
+    "stem_map": {
+      "Aspiration": "aspiration",
+      "Other": "other"
+    },
+    "stems": [
+      "Aspiration",
+      "Other"
+    ]
+  },
   "bs_roformer_instrumental_resurrection_unwa.ckpt": {
     "arch": "mdxc",
     "category": "splitter",
-    "error": "declared stems ['Instrumental', 'Vocals'] could not be unambiguously paired with real SDK stems ['vocals', 'other'] (count mismatch or no confident name match) \u2014 needs manual review",
     "label": "BS Roformer | Instrumental Resurrection by Unwa",
     "real_stems": [
       "vocals",
       "other"
     ],
-    "status": "error",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
     "stems": [
-      "Instrumental",
+      "Other",
       "Vocals"
     ]
   },
@@ -965,16 +1077,19 @@
   "bs_roformer_vocals_gabox.ckpt": {
     "arch": "mdxc",
     "category": "splitter",
-    "error": "declared stems ['Vocals', 'Other'] could not be unambiguously paired with real SDK stems ['Vocals', 'Instrumental'] (count mismatch or no confident name match) \u2014 needs manual review",
     "label": "BS Roformer | Vocals by Gabox",
     "real_stems": [
       "Vocals",
       "Instrumental"
     ],
-    "status": "error",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
     "stems": [
       "Vocals",
-      "Other"
+      "Instrumental"
     ]
   },
   "bs_roformer_vocals_resurrection_unwa.ckpt": {
@@ -1030,6 +1145,158 @@
     },
     "stems": [
       "Vocals",
+      "Other"
+    ]
+  },
+  "denoise_mel_band_roformer_aufr33_aggr_sdr_27.9768.ckpt": {
+    "arch": "mdxc",
+    "category": "denoise",
+    "label": "Mel-Roformer-Denoise-Aufr33-Aggr",
+    "status": "ok",
+    "stem_map": {
+      "Dry": "dry",
+      "Other": "other"
+    },
+    "stems": [
+      "Dry",
+      "Other"
+    ]
+  },
+  "denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt": {
+    "arch": "mdxc",
+    "category": "denoise",
+    "label": "Mel-Roformer-Denoise-Aufr33",
+    "status": "ok",
+    "stem_map": {
+      "Dry": "dry",
+      "Other": "other"
+    },
+    "stems": [
+      "Dry",
+      "Other"
+    ]
+  },
+  "dereverb-echo_mel_band_roformer_sdr_10.0169.ckpt": {
+    "arch": "mdxc",
+    "category": "dereverb",
+    "label": "MelBand Roformer | De-Reverb-Echo by Sucial",
+    "status": "ok",
+    "stem_map": {
+      "Dry": "dry",
+      "No Dry": "No dry"
+    },
+    "stems": [
+      "Dry",
+      "No Dry"
+    ]
+  },
+  "dereverb-echo_mel_band_roformer_sdr_13.4843_v2.ckpt": {
+    "arch": "mdxc",
+    "category": "dereverb",
+    "label": "MelBand Roformer | De-Reverb-Echo V2 by Sucial",
+    "status": "ok",
+    "stem_map": {
+      "Dry": "dry",
+      "No Dry": "No dry"
+    },
+    "stems": [
+      "Dry",
+      "No Dry"
+    ]
+  },
+  "dereverb_big_mbr_ep_362.ckpt": {
+    "arch": "mdxc",
+    "category": "dereverb",
+    "label": "MelBand Roformer | De-Reverb Big by Sucial",
+    "real_stems": [
+      "dry",
+      "other"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Dry": "dry",
+      "Other": "other"
+    },
+    "stems": [
+      "Dry",
+      "Other"
+    ]
+  },
+  "dereverb_echo_mbr_fused.ckpt": {
+    "arch": "mdxc",
+    "category": "dereverb",
+    "label": "MelBand Roformer | De-Reverb-Echo Fused by Sucial",
+    "real_stems": [
+      "dry",
+      "other"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Dry": "dry",
+      "Other": "other"
+    },
+    "stems": [
+      "Dry",
+      "Other"
+    ]
+  },
+  "dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt": {
+    "arch": "mdxc",
+    "category": "dereverb",
+    "label": "MelBand Roformer | De-Reverb by anvuew",
+    "status": "ok",
+    "stem_map": {
+      "No Reverb": "noreverb",
+      "Reverb": "reverb"
+    },
+    "stems": [
+      "No Reverb",
+      "Reverb"
+    ]
+  },
+  "dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt": {
+    "arch": "mdxc",
+    "category": "dereverb",
+    "label": "MelBand Roformer | De-Reverb Less Aggressive by anvuew",
+    "status": "ok",
+    "stem_map": {
+      "No Reverb": "noreverb",
+      "Reverb": "reverb"
+    },
+    "stems": [
+      "No Reverb",
+      "Reverb"
+    ]
+  },
+  "dereverb_mel_band_roformer_mono_anvuew.ckpt": {
+    "arch": "mdxc",
+    "category": "dereverb",
+    "label": "MelBand Roformer | De-Reverb Mono by anvuew",
+    "status": "ok",
+    "stem_map": {
+      "No Reverb": "noreverb",
+      "Reverb": "reverb"
+    },
+    "stems": [
+      "No Reverb",
+      "Reverb"
+    ]
+  },
+  "dereverb_super_big_mbr_ep_346.ckpt": {
+    "arch": "mdxc",
+    "category": "dereverb",
+    "label": "MelBand Roformer | De-Reverb Super Big by Sucial",
+    "real_stems": [
+      "dry",
+      "other"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Dry": "dry",
+      "Other": "other"
+    },
+    "stems": [
+      "Dry",
       "Other"
     ]
   },
@@ -1235,63 +1502,770 @@
       "Instrumental"
     ]
   },
+  "mel_band_roformer_bleed_suppressor_v1.ckpt": {
+    "arch": "mdxc",
+    "category": "debleed",
+    "label": "MelBand Roformer | Bleed Suppressor V1 by unwa-97chris",
+    "status": "ok",
+    "stem_map": {
+      "Bleed": "Bleed",
+      "Instrumental": "Instrumental"
+    },
+    "stems": [
+      "Instrumental",
+      "Bleed"
+    ]
+  },
+  "mel_band_roformer_crowd_aufr33_viperx_sdr_8.7144.ckpt": {
+    "arch": "mdxc",
+    "category": "specialty",
+    "label": "Mel-Roformer-Crowd-Aufr33-Viperx",
+    "status": "ok",
+    "stem_map": {
+      "Crowd": "crowd",
+      "Other": "other"
+    },
+    "stems": [
+      "Crowd",
+      "Other"
+    ]
+  },
+  "mel_band_roformer_denoise_debleed_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Denoise-Debleed by Gabox",
+    "note": "Filename implies denoise/debleed, but the SDK's real stems for this model are literally ['Instrumental', 'Vocals'] \u2014 a plain vocals/instrumental split. Recategorized to 'splitter' based on real output. TODO: manually test-run this model to confirm it actually behaves as a sensible splitter before recommending it.",
+    "real_stems": [
+      "Instrumental",
+      "Vocals"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_2_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental 2 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_3_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental 3 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_becruily.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental by becruily",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_bleedless_v1_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental Bleedless V1 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_bleedless_v2_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental Bleedless V2 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_bleedless_v3_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental Bleedless V3 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_fullness_noise_v4_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental Fullness Noisy V4 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_fullness_v1_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental Fullness V1 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_fullness_v2_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental Fullness V2 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_fullness_v3_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental Fullness V3 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_fv7z_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental FV7z by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_fv8_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental FV8 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_fvx_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental FVX by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Instrumental by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_instv5_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | INSTV5 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_instv5n_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | INSTV5N by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_instv6_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | INSTV6 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_instv6n_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | INSTV6N by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_instv7_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | INSTV7 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_instv7n_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | INSTV7N by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_instv8_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | INSTV8 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_instrumental_instv8n_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | INSTV8N by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Instrumental",
+      "Vocals"
+    ]
+  },
+  "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt": {
+    "arch": "mdxc",
+    "category": "karaoke",
+    "label": "Mel-Roformer-Karaoke-Aufr33-Viperx",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_karaoke_becruily.ckpt": {
+    "arch": "mdxc",
+    "category": "karaoke",
+    "label": "MelBand Roformer | Karaoke by becruily",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_karaoke_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "karaoke",
+    "label": "MelBand Roformer | Karaoke by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_karaoke_gabox_v2.ckpt": {
+    "arch": "mdxc",
+    "category": "karaoke",
+    "label": "MelBand Roformer | Karaoke V2 by Gabox",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_kim_ft2_bleedless_unwa.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | FT 2 Bleedless by unwa",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "mel_band_roformer_kim_ft2_unwa.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | FT 2 by unwa",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "mel_band_roformer_kim_ft3_unwa.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | FT 3 by unwa",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "mel_band_roformer_kim_ft_unwa.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | FT by unwa",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "mel_band_roformer_vocal_fullness_aname.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals Fullness by Aname",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "mel_band_roformer_vocals_becruily.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals by becruily",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "mel_band_roformer_vocals_fv1_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals FV1 by Gabox",
+    "real_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_vocals_fv2_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals FV2 by Gabox",
+    "real_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_vocals_fv3_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals FV3 by Gabox",
+    "real_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_vocals_fv4_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals FV4 by Gabox",
+    "real_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_vocals_fv5_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals FV5 by Gabox",
+    "real_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_vocals_fv6_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals FV6 by Gabox",
+    "real_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_vocals_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals by Gabox",
+    "real_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "mel_band_roformer_vocals_v2_gabox.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals V2 by Gabox",
+    "real_stems": [
+      "Vocals",
+      "Instrumental"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "melband_roformer_big_beta4.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | Big Beta 4 FT by unwa",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "melband_roformer_big_beta5e.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | Big Beta 5e FT by unwa",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "melband_roformer_big_beta6.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Big Beta 6 by unwa",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
+  "melband_roformer_big_beta6x.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Big Beta 6X by unwa",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
+    ]
+  },
   "melband_roformer_inst_v1.ckpt": {
     "arch": "mdxc",
     "category": "splitter",
-    "error": "declared stems ['Instrumental', 'Vocals'] could not be unambiguously paired with real SDK stems ['other', 'vocals'] (count mismatch or no confident name match) \u2014 needs manual review",
     "label": "MelBand Roformer Kim | Inst V1 by Unwa",
     "real_stems": [
       "other",
       "vocals"
     ],
-    "status": "error",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
     "stems": [
-      "Instrumental",
+      "Other",
       "Vocals"
     ]
   },
   "melband_roformer_inst_v1_plus.ckpt": {
     "arch": "mdxc",
     "category": "splitter",
-    "error": "declared stems ['Instrumental', 'Vocals'] could not be unambiguously paired with real SDK stems ['other', 'vocals'] (count mismatch or no confident name match) \u2014 needs manual review",
     "label": "MelBand Roformer Kim | Inst V1 Plus by Unwa",
     "real_stems": [
       "other",
       "vocals"
     ],
-    "status": "error",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
     "stems": [
-      "Instrumental",
+      "Other",
       "Vocals"
     ]
   },
   "melband_roformer_inst_v1e.ckpt": {
     "arch": "mdxc",
     "category": "splitter",
-    "error": "declared stems ['Instrumental', 'Vocals'] could not be unambiguously paired with real SDK stems ['other', 'vocals'] (count mismatch or no confident name match) \u2014 needs manual review",
     "label": "MelBand Roformer Kim | Inst V1 (E) by Unwa",
     "real_stems": [
       "other",
       "vocals"
     ],
-    "status": "error",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
     "stems": [
-      "Instrumental",
+      "Other",
       "Vocals"
     ]
   },
   "melband_roformer_inst_v1e_plus.ckpt": {
     "arch": "mdxc",
     "category": "splitter",
-    "error": "declared stems ['Instrumental', 'Vocals'] could not be unambiguously paired with real SDK stems ['other', 'vocals'] (count mismatch or no confident name match) \u2014 needs manual review",
     "label": "MelBand Roformer Kim | Inst V1 (E) Plus by Unwa",
     "real_stems": [
       "other",
       "vocals"
     ],
-    "status": "error",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
     "stems": [
-      "Instrumental",
+      "Other",
       "Vocals"
     ]
   },
@@ -1313,6 +2287,20 @@
     "arch": "mdxc",
     "category": "splitter",
     "label": "MelBand Roformer Kim | InstVoc Duality V1 by Unwa",
+    "status": "ok",
+    "stem_map": {
+      "Instrumental": "Instrumental",
+      "Vocals": "Vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Instrumental"
+    ]
+  },
+  "melband_roformer_instvox_duality_v2.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer Kim | InstVoc Duality V2 by Unwa",
     "status": "ok",
     "stem_map": {
       "Instrumental": "Instrumental",
@@ -1391,6 +2379,20 @@
     "stems": [
       "Vocals",
       "Instrumental"
+    ]
+  },
+  "vocals_mel_band_roformer.ckpt": {
+    "arch": "mdxc",
+    "category": "splitter",
+    "label": "MelBand Roformer | Vocals by Kimberley Jensen",
+    "status": "ok",
+    "stem_map": {
+      "Other": "other",
+      "Vocals": "vocals"
+    },
+    "stems": [
+      "Vocals",
+      "Other"
     ]
   }
 }

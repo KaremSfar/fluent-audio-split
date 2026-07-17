@@ -11,6 +11,8 @@ public class WorkflowExecution
     public Guid InputFileRecordId { get; set; }
     public FileRecord InputFileRecord { get; set; } = null!;
     public WorkflowExecutionStatus Status { get; set; } = WorkflowExecutionStatus.Pending;
+    public double? TrimStartSeconds { get; set; }
+    public double? TrimEndSeconds { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
     public string? ErrorMessage { get; set; }

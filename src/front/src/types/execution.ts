@@ -28,6 +28,8 @@ export interface WorkflowExecution {
   createdAt: string;
   completedAt?: string;
   errorMessage?: string;
+  trimStartSeconds?: number;
+  trimEndSeconds?: number;
 }
 
 export interface NodeStatusEvent {

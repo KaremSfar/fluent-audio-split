@@ -189,7 +189,9 @@ public class WorkflowsController : ControllerBase
             WorkflowVersionId = latestVersion.Id,
             UserId = userId,
             InputFileRecordId = fileRecord.Id,
-            Status = WorkflowExecutionStatus.Pending
+            Status = WorkflowExecutionStatus.Pending,
+            TrimStartSeconds = request.TrimStartSeconds,
+            TrimEndSeconds = request.TrimEndSeconds
         };
 
         db.WorkflowExecutions.Add(execution);
@@ -224,7 +226,9 @@ public class WorkflowsController : ControllerBase
                 NodeType = nodeDef.NodeType,
                 InputArtifactPath = nodeExec.InputArtifactPath ?? string.Empty,
                 OutputArtifactDir = nodeExec.OutputArtifactDir ?? string.Empty,
-                ConfigJson = nodeDef.ConfigJson
+                ConfigJson = nodeDef.ConfigJson,
+                TrimStartSeconds = execution.TrimStartSeconds,
+                TrimEndSeconds = execution.TrimEndSeconds
             }, ct);
         }
 
@@ -238,7 +242,7 @@ public class WorkflowsController : ControllerBase
             execution.WorkflowId,
             execution.WorkflowVersionId,
             workflow.Name,
-            new FileRecordDto(fileRecord.Id, fileRecord.OriginalFileName, fileRecord.ContentType, fileRecord.SizeBytes, fileRecord.CreatedAt),
+            new FileRecordDto(fileRecord.Id, fileRecord.OriginalFileName, fileRecord.ContentType, fileRecord.SizeBytes, fileRecord.CreatedAt, fileRecord.ContentHash),
             execution.Status.ToString(),
             nodeExecs.Select(ne =>
             {
@@ -252,7 +256,9 @@ public class WorkflowsController : ControllerBase
             }).ToList(),
             execution.CreatedAt,
             execution.CompletedAt,
-            execution.ErrorMessage));
+            execution.ErrorMessage,
+            execution.TrimStartSeconds,
+            execution.TrimEndSeconds));
     }
 
     private static string? ExtractModelName(string? configJson)

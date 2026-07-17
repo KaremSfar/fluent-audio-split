@@ -25,6 +25,8 @@ public record WorkflowExecutionDto(
     List<NodeExecutionDto> NodeExecutions,
     DateTime CreatedAt,
     DateTime? CompletedAt,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    double? TrimStartSeconds,
+    double? TrimEndSeconds);
 
-public record StartExecutionRequest(Guid FileId);
+public record StartExecutionRequest(Guid FileId, double? TrimStartSeconds = null, double? TrimEndSeconds = null);
