@@ -66,10 +66,20 @@ docker compose -f src/mobile-app/compose.yaml run --rm flutter bootstrap
 LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose -f src/mobile-app/compose.yaml run --rm flutter flutter analyze
 LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose -f src/mobile-app/compose.yaml run --rm flutter flutter test
 
-# Debug Android APK. API_BASE_URL must point to the reachable API/gateway for the target device.
-LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose -f src/mobile-app/compose.yaml run --rm flutter \
-  flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8765
+# Debug Android APK. The API base URL is read from src/mobile-app/.env
+# (copy .env.example -> .env and set API_BASE_URL to the gateway the target device can reach).
+LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose -f src/mobile-app/compose.yaml run --rm flutter build-apk
+
+# Release APK (forward extra flutter args after build-apk):
+LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose -f src/mobile-app/compose.yaml run --rm flutter build-apk --release
+
+# One-off override without editing .env (-e injects it into the container):
+LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) \
+  docker compose -f src/mobile-app/compose.yaml run --rm -e API_BASE_URL=http://10.0.2.2:8765 flutter build-apk
 ```
+
+The built APK lands at `src/mobile-app/build/app/outputs/flutter-apk/` (e.g. `app-debug.apk`). `API_BASE_URL`
+is a compile-time constant, so switching gateways means rebuilding.
 
 `ghcr.io/cirruslabs/flutter:stable` is a complete Flutter + Android SDK image. Its maintainers announced that
 updates stop after May 2026, so pin a tested image digest before release and replace it with the team's approved,

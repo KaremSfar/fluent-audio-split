@@ -78,6 +78,9 @@ class NodeExecution {
     required this.attempt,
     required this.outputPaths,
     this.label,
+    this.modelName,
+    this.startedAt,
+    this.completedAt,
     this.errorMessage,
   });
 
@@ -91,6 +94,9 @@ class NodeExecution {
         json['outputArtifactPaths'] as Map? ?? const <String, String>{},
       ),
       label: json['nodeLabel'] as String?,
+      modelName: json['modelName'] as String?,
+      startedAt: _parseDate(json['startedAt']),
+      completedAt: _parseDate(json['completedAt']),
       errorMessage: json['errorMessage'] as String?,
     );
   }
@@ -101,6 +107,9 @@ class NodeExecution {
   final int attempt;
   final Map<String, String> outputPaths;
   final String? label;
+  final String? modelName;
+  final DateTime? startedAt;
+  final DateTime? completedAt;
   final String? errorMessage;
 }
 
@@ -111,6 +120,9 @@ class WorkflowExecution {
     required this.inputFileName,
     required this.status,
     required this.nodes,
+    required this.createdAt,
+    this.completedAt,
+    this.errorMessage,
   });
 
   factory WorkflowExecution.fromJson(Map<String, dynamic> json) {
@@ -123,6 +135,9 @@ class WorkflowExecution {
       nodes: (json['nodeExecutions'] as List<dynamic>)
           .map((node) => NodeExecution.fromJson(Map<String, dynamic>.from(node as Map)))
           .toList(growable: false),
+      createdAt: _parseDate(json['createdAt']) ?? DateTime.now(),
+      completedAt: _parseDate(json['completedAt']),
+      errorMessage: json['errorMessage'] as String?,
     );
   }
 
@@ -133,6 +148,9 @@ class WorkflowExecution {
       inputFileName: inputFileName,
       status: status ?? this.status,
       nodes: nodes ?? this.nodes,
+      createdAt: createdAt,
+      completedAt: completedAt,
+      errorMessage: errorMessage,
     );
   }
 
@@ -141,7 +159,12 @@ class WorkflowExecution {
   final String inputFileName;
   final String status;
   final List<NodeExecution> nodes;
+  final DateTime createdAt;
+  final DateTime? completedAt;
+  final String? errorMessage;
 }
+
+DateTime? _parseDate(dynamic value) => value is String ? DateTime.tryParse(value)?.toLocal() : null;
 
 sealed class ExecutionEvent {
   const ExecutionEvent();
@@ -222,6 +245,9 @@ class ApiClient {
   final SessionStore session;
   final http.Client _client;
 
+  // Coalesces concurrent refreshes so a burst of 401s triggers only one refresh.
+  Future<bool>? _refreshInFlight;
+
   Future<void> signIn({required String email, required String password}) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/api/auth/login'),
@@ -233,21 +259,32 @@ class ApiClient {
   }
 
   Future<String?> restoreSession() async {
+    final email = await session.email();
+    if (email == null) return null;
+    if (await _refreshTokens()) return email;
+    await session.clear();
+    return null;
+  }
+
+  /// Exchanges the stored refresh token for a fresh access/refresh pair. Returns
+  /// false when there is no refresh token or the server rejects it. Concurrent
+  /// callers share a single in-flight refresh.
+  Future<bool> _refreshTokens() {
+    return _refreshInFlight ??= _performRefresh().whenComplete(() => _refreshInFlight = null);
+  }
+
+  Future<bool> _performRefresh() async {
     final refreshToken = await session.refreshToken();
     final email = await session.email();
-    if (refreshToken == null || email == null) return null;
-
+    if (refreshToken == null || email == null) return false;
     final response = await _client.post(
       Uri.parse('$baseUrl/api/auth/refresh'),
       headers: const {'content-type': 'application/json'},
       body: jsonEncode({'refreshToken': refreshToken}),
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      await session.clear();
-      return null;
-    }
+    if (response.statusCode < 200 || response.statusCode >= 300) return false;
     await session.write(AuthTokens.fromJson(_jsonMap(response.body)), email);
-    return email;
+    return true;
   }
 
   Future<void> signOut() => session.clear();
@@ -255,6 +292,13 @@ class ApiClient {
   Future<List<Workflow>> listWorkflows() async {
     final response = await _authorized('GET', '/api/workflows');
     return _jsonList(response.body).map(Workflow.fromJson).toList(growable: false);
+  }
+
+  Future<List<WorkflowExecution>> listExecutions() async {
+    final response = await _authorized('GET', '/api/executions');
+    return _jsonList(response.body)
+        .map(WorkflowExecution.fromJson)
+        .toList(growable: false);
   }
 
   Future<UploadedFile?> findByHash(String hash) async {
@@ -267,12 +311,44 @@ class ApiClient {
   }
 
   Future<UploadedFile> uploadAudio(File file) async {
-    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/files/upload'));
-    request.headers.addAll(await _authHeaders());
-    request.files.add(await http.MultipartFile.fromPath('file', file.path));
-    final response = await http.Response.fromStream(await request.send());
+    Future<http.Response> send() async {
+      final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/files/upload'));
+      request.headers.addAll(await _authHeaders());
+      request.files.add(await http.MultipartFile.fromPath('file', file.path));
+      return http.Response.fromStream(await request.send());
+    }
+
+    var response = await send();
+    if (response.statusCode == 401 && await _refreshTokens()) {
+      response = await send();
+    }
     _throwForResponse(response);
     return UploadedFile.fromJson(_jsonMap(response.body));
+  }
+
+  /// Imports a single YouTube video's audio server-side (yt-dlp + ffmpeg) and
+  /// stores it as the signed-in user's normal input file. The API performs the
+  /// download synchronously and can take a while, so callers should allow time.
+  Future<UploadedFile> importYouTube(String url) async {
+    final response = await _authorized(
+      'POST',
+      '/api/files/import-youtube',
+      body: {'url': url},
+    );
+    return UploadedFile.fromJson(_jsonMap(response.body));
+  }
+
+  /// Downloads a stored input file's audio to a local temp file so it can be
+  /// decoded/previewed/trimmed with the same path used for local uploads
+  /// (e.g. a YouTube import). Returns the local file path.
+  Future<String> downloadInputFile(UploadedFile file) async {
+    final uri = Uri.parse('$baseUrl/api/files/${file.id}/content');
+    final response = await _getWithAuth(uri);
+    _throwForResponse(response);
+    final directory = await getTemporaryDirectory();
+    final localFile = File('${directory.path}/${file.id}_${file.name}');
+    await localFile.writeAsBytes(response.bodyBytes);
+    return localFile.path;
   }
 
   Future<WorkflowExecution> startExecution(
@@ -298,9 +374,16 @@ class ApiClient {
   }
 
   Stream<ExecutionEvent> streamExecution(String executionId) async* {
-    final request = http.Request('GET', Uri.parse('$baseUrl/api/executions/$executionId/stream'));
-    request.headers.addAll(await _authHeaders());
-    final response = await _client.send(request);
+    Future<http.StreamedResponse> open() async {
+      final request = http.Request('GET', Uri.parse('$baseUrl/api/executions/$executionId/stream'));
+      request.headers.addAll(await _authHeaders());
+      return _client.send(request);
+    }
+
+    var response = await open();
+    if (response.statusCode == 401 && await _refreshTokens()) {
+      response = await open();
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException('Unable to open live execution stream (${response.statusCode}).');
     }
@@ -314,7 +397,7 @@ class ApiClient {
 
   Future<String> downloadStem(String path, {String? destinationDirectory}) async {
     final uri = Uri.parse('$baseUrl/api/files/download').replace(queryParameters: {'path': path});
-    final response = await _client.get(uri, headers: await _authHeaders());
+    final response = await _getWithAuth(uri);
     _throwForResponse(response);
     final directory = destinationDirectory == null
         ? await getApplicationDocumentsDirectory()
@@ -330,14 +413,31 @@ class ApiClient {
     Map<String, dynamic>? body,
     bool allowNotFound = false,
   }) async {
+    var response = await _sendAuthorized(method, path, body);
+    // Access tokens expire quickly (~5 min); on 401, refresh once and retry.
+    if (response.statusCode == 401 && await _refreshTokens()) {
+      response = await _sendAuthorized(method, path, body);
+    }
+    if (!(allowNotFound && response.statusCode == 404)) _throwForResponse(response);
+    return response;
+  }
+
+  Future<http.Response> _sendAuthorized(String method, String path, Map<String, dynamic>? body) async {
     final request = http.Request(method, Uri.parse('$baseUrl$path'));
     request.headers.addAll(await _authHeaders());
     if (body != null) {
       request.headers['content-type'] = 'application/json';
       request.body = jsonEncode(body);
     }
-    final response = await http.Response.fromStream(await _client.send(request));
-    if (!(allowNotFound && response.statusCode == 404)) _throwForResponse(response);
+    return http.Response.fromStream(await _client.send(request));
+  }
+
+  /// GET with a bearer token, refreshing once and retrying on a 401.
+  Future<http.Response> _getWithAuth(Uri uri) async {
+    var response = await _client.get(uri, headers: await _authHeaders());
+    if (response.statusCode == 401 && await _refreshTokens()) {
+      response = await _client.get(uri, headers: await _authHeaders());
+    }
     return response;
   }
 
@@ -360,6 +460,121 @@ List<Map<String, dynamic>> _jsonList(String value) {
   return (jsonDecode(value) as List<dynamic>)
       .map((item) => Map<String, dynamic>.from(item as Map))
       .toList(growable: false);
+}
+
+// ── Design tokens mirrored from the web app (src/front: Tailwind + shadcn/ui) ──
+// Web primary is hsl(262.1 83.3% 57.8%) = #7C3AED; neutrals are the zinc scale;
+// destructive is #EF4444; the shared radius is 0.75rem = 12px.
+const _kPrimary = Color(0xFF7C3AED); // violet-600
+const _kForeground = Color(0xFF09090B); // zinc-950 text
+const _kMutedForeground = Color(0xFF71717A); // zinc-500
+const _kMuted = Color(0xFFF4F4F5); // zinc-100 subtle fill
+const _kBorder = Color(0xFFE4E4E7); // zinc-200
+const _kDestructive = Color(0xFFEF4444); // red-500
+const _kSuccess = Color(0xFF16A34A); // green-600
+const _kWarning = Color(0xFFF59E0B); // amber-500
+const _kRadius = 12.0;
+
+ThemeData buildFluentTheme() {
+  final colorScheme = ColorScheme.fromSeed(
+    seedColor: _kPrimary,
+    brightness: Brightness.light,
+  ).copyWith(
+    primary: _kPrimary,
+    onPrimary: Colors.white,
+    secondary: _kMuted,
+    onSecondary: _kForeground,
+    surface: Colors.white,
+    onSurface: _kForeground,
+    onSurfaceVariant: _kMutedForeground,
+    error: _kDestructive,
+    onError: Colors.white,
+    outline: _kBorder,
+    outlineVariant: _kBorder,
+  );
+
+  final radius = BorderRadius.circular(_kRadius);
+  OutlineInputBorder inputBorder(Color color, [double width = 1]) => OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: BorderSide(color: color, width: width),
+      );
+
+  return ThemeData(
+    colorScheme: colorScheme,
+    useMaterial3: true,
+    scaffoldBackgroundColor: Colors.white,
+    dividerColor: _kBorder,
+    appBarTheme: const AppBarTheme(
+      centerTitle: false,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      backgroundColor: Colors.white,
+      foregroundColor: _kForeground,
+      surfaceTintColor: Colors.transparent,
+      titleTextStyle: TextStyle(
+        color: _kForeground,
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    // shadcn cards are flat white with a subtle border and generous radius.
+    cardTheme: CardThemeData(
+      elevation: 0,
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: const BorderSide(color: _kBorder),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: _kPrimary,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        shape: RoundedRectangleBorder(borderRadius: radius),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _kForeground,
+        side: const BorderSide(color: _kBorder),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        shape: RoundedRectangleBorder(borderRadius: radius),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: _kPrimary,
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: inputBorder(_kBorder),
+      enabledBorder: inputBorder(_kBorder),
+      focusedBorder: inputBorder(_kPrimary, 1.5),
+      errorBorder: inputBorder(_kDestructive),
+      focusedErrorBorder: inputBorder(_kDestructive, 1.5),
+      labelStyle: const TextStyle(color: _kMutedForeground),
+      hintStyle: const TextStyle(color: _kMutedForeground),
+    ),
+    sliderTheme: const SliderThemeData(
+      activeTrackColor: _kPrimary,
+      thumbColor: _kPrimary,
+      overlayColor: Color(0x1F7C3AED),
+    ),
+    progressIndicatorTheme: const ProgressIndicatorThemeData(color: _kPrimary),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: radius),
+    ),
+  );
 }
 
 class FluentAudioSplitApp extends StatefulWidget {
@@ -392,21 +607,10 @@ class _FluentAudioSplitAppState extends State<FluentAudioSplitApp> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xff6e35d8),
-      brightness: Brightness.light,
-      surface: const Color(0xfffbfaff),
-    );
     return MaterialApp(
       title: 'Fluent Audio Split',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: colorScheme,
-        scaffoldBackgroundColor: const Color(0xfff7f7fb),
-        appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0),
-        inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder()),
-        useMaterial3: true,
-      ),
+      theme: buildFluentTheme(),
       home: _checkingSession
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _email == null
@@ -581,6 +785,15 @@ class _WorkflowListScreenState extends State<WorkflowListScreen> {
       appBar: AppBar(
         title: const Text('My workflows'),
         actions: [
+            IconButton(
+              onPressed: () => Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => ExecutionsListScreen(api: widget.api),
+                ),
+              ),
+              icon: const Icon(Icons.history_outlined),
+              tooltip: 'Execution history',
+            ),
           IconButton(
             onPressed: _refresh,
             icon: const Icon(Icons.refresh),
@@ -659,6 +872,103 @@ class _WorkflowListScreenState extends State<WorkflowListScreen> {
   }
 }
 
+class ExecutionsListScreen extends StatefulWidget {
+  const ExecutionsListScreen({super.key, required this.api});
+
+  final ApiClient api;
+
+  @override
+  State<ExecutionsListScreen> createState() => _ExecutionsListScreenState();
+}
+
+class _ExecutionsListScreenState extends State<ExecutionsListScreen> {
+  late Future<List<WorkflowExecution>> _executions = widget.api.listExecutions();
+
+  Future<void> _refresh() async {
+    setState(() => _executions = widget.api.listExecutions());
+    await _executions;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Execution history'),
+        actions: [
+          IconButton(
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh executions',
+          ),
+        ],
+      ),
+      body: FutureBuilder<List<WorkflowExecution>>(
+        future: _executions,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return _LoadFailure(onRetry: _refresh, message: '${snapshot.error}');
+          }
+          final executions = snapshot.requireData;
+          if (executions.isEmpty) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Text('No executions yet.', textAlign: TextAlign.center),
+              ),
+            );
+          }
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: executions.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final execution = executions[index];
+                return Card(
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
+                    leading: Icon(
+                      _statusIcon(execution.status),
+                      color: _statusColor(execution.status),
+                    ),
+                    title: Text(
+                      execution.workflowName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      '${execution.inputFileName}\n${_formatDateTime(execution.createdAt)}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    isThreeLine: true,
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () async {
+                      await Navigator.of(context).push<void>(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ExecutionScreen(
+                            api: widget.api,
+                            initialExecution: execution,
+                          ),
+                        ),
+                      );
+                      if (mounted) _refresh();
+                    },
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class RunWorkflowScreen extends StatefulWidget {
   const RunWorkflowScreen({super.key, required this.api, required this.workflow});
 
@@ -671,12 +981,14 @@ class RunWorkflowScreen extends StatefulWidget {
 
 class _RunWorkflowScreenState extends State<RunWorkflowScreen> {
   final AudioPlayer _player = AudioPlayer();
+  final TextEditingController _youtubeController = TextEditingController();
   PlatformFile? _selectedFile;
   UploadedFile? _uploadedFile;
   Duration? _duration;
   var _trimStart = 0.0;
   var _trimEnd = 0.0;
   var _isPreparing = false;
+  var _isImporting = false;
   var _isRunning = false;
   var _reusedUpload = false;
   String? _error;
@@ -684,6 +996,7 @@ class _RunWorkflowScreenState extends State<RunWorkflowScreen> {
   @override
   void dispose() {
     _player.dispose();
+    _youtubeController.dispose();
     super.dispose();
   }
 
@@ -743,6 +1056,43 @@ class _RunWorkflowScreenState extends State<RunWorkflowScreen> {
     }
   }
 
+  Future<void> _importFromYouTube() async {
+    final url = _youtubeController.text.trim();
+    if (url.isEmpty) return;
+    setState(() {
+      _isImporting = true;
+      _error = null;
+    });
+    try {
+      final imported = await widget.api.importYouTube(url);
+      if (!mounted) return;
+      // Download the stored file and decode it locally so its duration drives the
+      // same trim controls used for local uploads. Preview is best-effort: any
+      // failure just leaves it runnable as the full file.
+      Duration? duration;
+      try {
+        final localPath = await widget.api.downloadInputFile(imported);
+        duration = await _player.setFilePath(localPath);
+      } catch (_) {
+        duration = null;
+      }
+      if (!mounted) return;
+      setState(() {
+        // The import is already stored server-side, so it is immediately runnable.
+        _uploadedFile = imported;
+        _reusedUpload = false;
+        _selectedFile = null;
+        _duration = duration;
+        _trimStart = 0;
+        _trimEnd = duration == null ? 0 : duration.inMilliseconds / 1000;
+      });
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _isImporting = false);
+    }
+  }
+
   Future<void> _playSelection() async {
     if (_duration == null) return;
     await _player.setClip(
@@ -799,7 +1149,7 @@ class _RunWorkflowScreenState extends State<RunWorkflowScreen> {
                   const Icon(Icons.audio_file_outlined, size: 48),
                   const SizedBox(height: 12),
                   Text(
-                    _selectedFile?.name ?? 'Choose an audio file',
+                    _selectedFile?.name ?? _uploadedFile?.name ?? 'Choose an audio file',
                     style: Theme.of(context).textTheme.titleMedium,
                     textAlign: TextAlign.center,
                     maxLines: 1,
@@ -813,7 +1163,7 @@ class _RunWorkflowScreenState extends State<RunWorkflowScreen> {
                   ),
                   const SizedBox(height: 20),
                   OutlinedButton.icon(
-                    onPressed: _isPreparing ? null : _chooseAudio,
+                    onPressed: _isPreparing || _isImporting ? null : _chooseAudio,
                     icon: const Icon(Icons.folder_open),
                     label: Text(_selectedFile == null ? 'Choose audio' : 'Change file'),
                   ),
@@ -830,6 +1180,57 @@ class _RunWorkflowScreenState extends State<RunWorkflowScreen> {
                       label: Text(_uploadedFile == null ? 'Prepare file' : 'File ready'),
                     ),
                   ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.smart_display_outlined),
+                      const SizedBox(width: 8),
+                      Text('Import from YouTube', style: Theme.of(context).textTheme.titleMedium),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Paste a video URL and the server extracts its audio. This can take a minute.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _youtubeController,
+                    enabled: !_isImporting && !_isRunning,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'YouTube URL',
+                      hintText: 'https://www.youtube.com/watch?v=…',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.link),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                    onSubmitted: (_) => _importFromYouTube(),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _isImporting || _isRunning || _isPreparing || _youtubeController.text.trim().isEmpty
+                        ? null
+                        : _importFromYouTube,
+                    icon: _isImporting
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.download),
+                    label: Text(_isImporting ? 'Importing…' : 'Import audio'),
+                  ),
                 ],
               ),
             ),
@@ -880,7 +1281,7 @@ class _RunWorkflowScreenState extends State<RunWorkflowScreen> {
             const SizedBox(height: 12),
             StatusNote(
               icon: Icons.check_circle_outline,
-              color: Colors.green,
+              color: _kSuccess,
               text: _reusedUpload ? 'Ready. Reused a previous upload.' : 'Ready to run.',
             ),
           ],
@@ -915,6 +1316,7 @@ class ExecutionScreen extends StatefulWidget {
 class _ExecutionScreenState extends State<ExecutionScreen> {
   late WorkflowExecution _execution = widget.initialExecution;
   StreamSubscription<ExecutionEvent>? _subscription;
+  final AudioPlayer _stemPlayer = AudioPlayer();
   String? _error;
 
   @override
@@ -949,6 +1351,11 @@ class _ExecutionScreenState extends State<ExecutionScreen> {
         attempt: event.attempt ?? prior?.attempt ?? 0,
         outputPaths: event.outputPaths ?? prior?.outputPaths ?? const {},
         label: prior?.label,
+          modelName: prior?.modelName,
+          startedAt: prior?.startedAt,
+          completedAt: event.type == 'NodeCompleted' || event.type == 'NodeFailed'
+            ? DateTime.now()
+            : prior?.completedAt,
         errorMessage: event.errorMessage ?? prior?.errorMessage,
       );
       if (index >= 0) {
@@ -977,7 +1384,20 @@ class _ExecutionScreenState extends State<ExecutionScreen> {
   @override
   void dispose() {
     _subscription?.cancel();
+    _stemPlayer.dispose();
     super.dispose();
+  }
+
+  Future<void> _playStem(String stem, String path) async {
+    try {
+      final localPath = await widget.api.downloadStem(path);
+      await _stemPlayer.setFilePath(localPath);
+      await _stemPlayer.play();
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
   }
 
   Future<void> _downloadStem(String stem, String path) async {
@@ -996,7 +1416,7 @@ class _ExecutionScreenState extends State<ExecutionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_execution.workflowName),
+          title: const Text('Execution'),
         actions: [
           IconButton(
             onPressed: _refreshExecution,
@@ -1008,64 +1428,211 @@ class _ExecutionScreenState extends State<ExecutionScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  Icon(_statusIcon(_execution.status), color: _statusColor(_execution.status), size: 32),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(_execution.status, style: Theme.of(context).textTheme.titleLarge),
-                        Text(_execution.inputFileName, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      ],
-                    ),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _execution.workflowName,
+                              style: Theme.of(context).textTheme.headlineSmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          StatusPill(status: _execution.status),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'File: ${_execution.inputFileName} · Started: ${_formatDateTime(_execution.createdAt)}${_execution.completedAt == null ? '' : ' · Completed: ${_formatDateTime(_execution.completedAt!)}'}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ),
           if (_error != null) ...[
             const SizedBox(height: 12),
             StatusNote(icon: Icons.error_outline, color: Theme.of(context).colorScheme.error, text: _error!),
           ],
           const SizedBox(height: 16),
-          Text('Processing', style: Theme.of(context).textTheme.titleMedium),
+            Text('Node executions', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           if (_execution.nodes.isEmpty)
             const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('Waiting for workflow nodes...'))),
           ..._execution.nodes.map(
             (node) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Card(
-                child: ExpansionTile(
-                  leading: Icon(_statusIcon(node.status), color: _statusColor(node.status)),
-                  title: Text(node.label ?? 'Workflow node'),
-                  subtitle: Text(node.status),
-                  children: [
-                    if (node.errorMessage != null)
-                      Padding(padding: const EdgeInsets.all(16), child: Text(node.errorMessage!)),
-                    ...node.outputPaths.entries.map(
-                      (entry) => ListTile(
-                        leading: const Icon(Icons.audio_file_outlined),
-                        title: Text(entry.key),
-                        subtitle: Text(entry.value.split('/').last),
-                        trailing: const Icon(Icons.download),
-                        onTap: () => _downloadStem(entry.key, entry.value),
-                      ),
-                    ),
-                  ],
+                padding: const EdgeInsets.only(bottom: 12),
+                child: NodeExecutionCard(
+                  node: node,
+                  onPlay: _playStem,
+                  onDownload: _downloadStem,
                 ),
-              ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class StatusPill extends StatelessWidget {
+  const StatusPill({super.key, required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _statusColor(status);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        child: Text(
+          status,
+          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+}
+
+class NodeExecutionCard extends StatelessWidget {
+  const NodeExecutionCard({
+    super.key,
+    required this.node,
+    required this.onPlay,
+    required this.onDownload,
+  });
+
+  final NodeExecution node;
+  final Future<void> Function(String stem, String path) onPlay;
+  final Future<void> Function(String stem, String path) onDownload;
+
+  @override
+  Widget build(BuildContext context) {
+    final model = node.modelName == null || node.modelName!.isEmpty
+        ? null
+        : node.modelName!.replaceAll('.yaml', '');
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    node.label ?? 'Workflow node',
+                    style: Theme.of(context).textTheme.titleMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                StatusPill(status: node.status),
+              ],
+            ),
+            if (model != null) ...[
+              const SizedBox(height: 2),
+              Text(model, style: Theme.of(context).textTheme.bodySmall),
+            ],
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                _NodeMetric(label: 'Started', value: _formatTime(node.startedAt)),
+                _NodeMetric(label: 'Completed', value: _formatTime(node.completedAt)),
+                _NodeMetric(label: 'Duration', value: _formatDuration(node.startedAt, node.completedAt)),
+              ],
+            ),
+            if (node.errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(node.errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            if (node.outputPaths.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text('Output stems', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 8),
+              ...node.outputPaths.entries.map(
+                (entry) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      IconButton.filled(
+                        onPressed: () => onPlay(entry.key, entry.value),
+                        icon: const Icon(Icons.play_arrow),
+                        tooltip: 'Play ${entry.key}',
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(entry.key, overflow: TextOverflow.ellipsis),
+                      ),
+                      IconButton(
+                        onPressed: () => onDownload(entry.key, entry.value),
+                        icon: const Icon(Icons.download_outlined),
+                        tooltip: 'Download ${entry.key}',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NodeMetric extends StatelessWidget {
+  const _NodeMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.labelSmall),
+          const SizedBox(height: 2),
+          Text(value, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+String _formatDateTime(DateTime value) {
+  final local = value.toLocal();
+  return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} ${_formatTime(local)}';
+}
+
+String _formatTime(DateTime? value) {
+  if (value == null) return '—';
+  final local = value.toLocal();
+  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  return '$hour:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')} ${local.hour < 12 ? 'AM' : 'PM'}';
+}
+
+String _formatDuration(DateTime? start, DateTime? end) {
+  if (start == null || end == null) return '—';
+  final duration = end.difference(start);
+  if (duration.inMilliseconds < 1000) return '${duration.inMilliseconds}ms';
+  return '${(duration.inMilliseconds / 1000).toStringAsFixed(1)}s';
 }
 
 class StatusNote extends StatelessWidget {
@@ -1125,10 +1692,10 @@ String formatTime(double seconds) {
 }
 
 Color _statusColor(String status) => switch (status) {
-  'Completed' => Colors.green,
-  'Failed' || 'PartiallyFailed' => Colors.red,
-  'Running' => const Color(0xff6e35d8),
-  _ => Colors.orange,
+  'Completed' => _kSuccess,
+  'Failed' || 'PartiallyFailed' => _kDestructive,
+  'Running' => _kPrimary,
+  _ => _kWarning,
 };
 
 IconData _statusIcon(String status) => switch (status) {

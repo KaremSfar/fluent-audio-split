@@ -3,6 +3,11 @@ services:
     # This image includes Flutter and the Android SDK, so the host needs neither.
     image: ghcr.io/cirruslabs/flutter:stable
     working_dir: /workspace
+    # API_BASE_URL (and any other overrides) are read from .env next to this file
+    # and injected into the container; the build-apk command bakes it into the APK.
+    env_file:
+      - path: .env
+        required: false
     environment:
       ACCEPT_ANDROID_SDK_LICENSES: ${ACCEPT_ANDROID_SDK_LICENSES:-false}
       LOCAL_UID: ${LOCAL_UID:-1000}
