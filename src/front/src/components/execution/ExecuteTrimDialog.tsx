@@ -19,11 +19,31 @@ interface ExecuteTrimDialogProps {
 type UploadPhase = 'idle' | 'hashing' | 'checking' | 'uploading' | 'ready' | 'error';
 type InputSource = 'local' | 'youtube';
 
-function formatTime(seconds: number): string {
+// Formats seconds as an editable m:ss(.ss) time string, e.g. 42.23 -> "0:42.23".
+function formatTimeInput(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${String(secs).padStart(2, '0')}`;
+  const secs = seconds % 60;
+  const wholeSecs = Math.floor(secs);
+  const fraction = secs - wholeSecs;
+  const fractionStr = fraction > 0 ? fraction.toFixed(2).slice(1).replace(/0+$/, '').replace(/\.$/, '') : '';
+  return `${mins}:${String(wholeSecs).padStart(2, '0')}${fractionStr}`;
+}
+
+// Parses an m:ss / mm:ss.ss / plain-seconds string into seconds, or null if invalid.
+function parseTimeInput(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split(':');
+  if (parts.length > 2) return null;
+  if (parts.length === 2) {
+    const mins = Number(parts[0]);
+    const secs = Number(parts[1]);
+    if (!Number.isFinite(mins) || !Number.isFinite(secs) || mins < 0 || secs < 0) return null;
+    return mins * 60 + secs;
+  }
+  const secs = Number(parts[0]);
+  return Number.isFinite(secs) && secs >= 0 ? secs : null;
 }
 
 export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrimDialogProps) {
@@ -39,6 +59,10 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
   const [duration, setDuration] = useState(0);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
+  const [trimStartText, setTrimStartText] = useState(formatTimeInput(0));
+  const [trimEndText, setTrimEndText] = useState(formatTimeInput(0));
+  const [committedTrimStart, setCommittedTrimStart] = useState(0);
+  const [committedTrimEnd, setCommittedTrimEnd] = useState(0);
   const [waveformError, setWaveformError] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
 
@@ -156,6 +180,38 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
     const clamped = Math.min(duration, Math.max(value, trimStart));
     setTrimEnd(clamped);
     waveformRef.current?.setRegion(trimStart, clamped);
+  };
+
+  // Keep the editable time text in sync whenever the trim bounds change from
+  // elsewhere (waveform drag, reset, initial load) — but not while the user
+  // is actively typing, since that's handled locally until commit. Resetting
+  // state during render (instead of in an effect) avoids an extra render pass.
+  if (trimStart !== committedTrimStart) {
+    setCommittedTrimStart(trimStart);
+    setTrimStartText(formatTimeInput(trimStart));
+  }
+
+  if (trimEnd !== committedTrimEnd) {
+    setCommittedTrimEnd(trimEnd);
+    setTrimEndText(formatTimeInput(trimEnd));
+  }
+
+  const commitTrimStartText = () => {
+    const parsed = parseTimeInput(trimStartText);
+    if (parsed === null) {
+      setTrimStartText(formatTimeInput(trimStart));
+      return;
+    }
+    handleTrimStartChange(parsed);
+  };
+
+  const commitTrimEndText = () => {
+    const parsed = parseTimeInput(trimEndText);
+    if (parsed === null) {
+      setTrimEndText(formatTimeInput(trimEnd));
+      return;
+    }
+    handleTrimEndChange(parsed);
   };
 
   const handleResetSelection = () => {
@@ -326,27 +382,43 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
 
               <div className="flex items-end gap-4">
                 <div className="space-y-1">
-                  <Label htmlFor="trim-start">Start ({formatTime(trimStart)})</Label>
+                  <Label htmlFor="trim-start">Start</Label>
                   <Input
                     id="trim-start"
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={trimStart}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="m:ss"
+                    className="w-24"
+                    value={trimStartText}
                     disabled={waveformError}
-                    onChange={(e) => handleTrimStartChange(Number(e.target.value))}
+                    onChange={(e) => setTrimStartText(e.target.value)}
+                    onBlur={commitTrimStartText}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="trim-end">End ({formatTime(trimEnd)})</Label>
+                  <Label htmlFor="trim-end">End</Label>
                   <Input
                     id="trim-end"
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={trimEnd}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="m:ss"
+                    className="w-24"
+                    value={trimEndText}
                     disabled={waveformError}
-                    onChange={(e) => handleTrimEndChange(Number(e.target.value))}
+                    onChange={(e) => setTrimEndText(e.target.value)}
+                    onBlur={commitTrimEndText}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
                   />
                 </div>
                 <Button variant="outline" size="sm" onClick={handleResetSelection} disabled={waveformError}>
