@@ -28,9 +28,9 @@ export const PARAM_GROUPS: ParamGroup[] = [
       {
         key: 'output_format',
         label: 'Output Format',
-        description: 'Output format for separated files (default: FLAC).',
+        description: 'Output format for separated files (default: MP3).',
         type: 'select',
-        default: 'FLAC',
+        default: 'MP3',
         options: [
           { value: 'FLAC', label: 'FLAC' },
           { value: 'WAV', label: 'WAV' },

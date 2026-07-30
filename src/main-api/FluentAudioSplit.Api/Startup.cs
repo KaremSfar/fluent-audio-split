@@ -84,6 +84,8 @@ public class Startup
         services.AddSingleton<ExecutionEventBus>();
         services.AddSingleton<IFileStorageProvider>(sp =>
             new LocalFileStorageProvider(Configuration["FileStorage:BasePath"] ?? "/data/audio"));
+        services.Configure<YouTubeAudioImportOptions>(Configuration.GetSection(YouTubeAudioImportOptions.SectionName));
+        services.AddScoped<IYouTubeAudioImportService, YouTubeAudioImportService>();
 
         // MassTransit + RabbitMQ
         var rabbitMqHost = Configuration["RabbitMq:Host"] ?? "localhost";

@@ -27,6 +27,9 @@ services:
       - RabbitMq__Host=rabbitmq
       - RabbitMq__Username=guest
       - RabbitMq__Password=guest
+      # Optional residential/trusted egress proxy for YouTube imports. Datacenter
+      # IPs are frequently blocked by YouTube; leave empty to connect directly.
+      - YouTubeAudioImport__ProxyUrl=${YOUTUBE_IMPORT_PROXY_URL:-}
     volumes:
       - api-data:/data
       - shared-audio:/data/audio

@@ -1,0 +1,25 @@
+name: fluent_audio_split_mobile
+description: Mobile client for running existing Fluent Audio Split workflows.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  crypto: ^3.0.6
+  file_picker: ^10.2.0
+  flutter:
+    sdk: flutter
+  flutter_secure_storage: ^9.2.4
+  http: ^1.4.0
+  just_audio: ^0.9.46
+  path_provider: ^2.1.5
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

@@ -7,6 +7,8 @@ import { filesService } from '@/services/filesService';
 import { sha256Hex } from '@/lib/hashFile';
 import { TrimWaveform, type TrimWaveformHandle } from '@/components/execution/TrimWaveform';
 import type { FileRecord } from '@/types/file';
+import { isAxiosError } from 'axios';
+import { Download } from 'lucide-react';
 
 interface ExecuteTrimDialogProps {
   onExecute: (args: { fileId: string; trimStart?: number; trimEnd?: number }) => void;
@@ -15,23 +17,52 @@ interface ExecuteTrimDialogProps {
 }
 
 type UploadPhase = 'idle' | 'hashing' | 'checking' | 'uploading' | 'ready' | 'error';
+type InputSource = 'local' | 'youtube';
 
-function formatTime(seconds: number): string {
+// Formats seconds as an editable m:ss(.ss) time string, e.g. 42.23 -> "0:42.23".
+function formatTimeInput(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${String(secs).padStart(2, '0')}`;
+  const secs = seconds % 60;
+  const wholeSecs = Math.floor(secs);
+  const fraction = secs - wholeSecs;
+  const fractionStr = fraction > 0 ? fraction.toFixed(2).slice(1).replace(/0+$/, '').replace(/\.$/, '') : '';
+  return `${mins}:${String(wholeSecs).padStart(2, '0')}${fractionStr}`;
+}
+
+// Parses an m:ss / mm:ss.ss / plain-seconds string into seconds, or null if invalid.
+function parseTimeInput(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split(':');
+  if (parts.length > 2) return null;
+  if (parts.length === 2) {
+    const mins = Number(parts[0]);
+    const secs = Number(parts[1]);
+    if (!Number.isFinite(mins) || !Number.isFinite(secs) || mins < 0 || secs < 0) return null;
+    return mins * 60 + secs;
+  }
+  const secs = Number(parts[0]);
+  return Number.isFinite(secs) && secs >= 0 ? secs : null;
 }
 
 export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrimDialogProps) {
   const [pickedFile, setPickedFile] = useState<File | null>(null);
+  const [inputSource, setInputSource] = useState<InputSource | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileRecord, setFileRecord] = useState<FileRecord | null>(null);
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>('idle');
   const [wasReused, setWasReused] = useState(false);
+  const [youTubeUrl, setYouTubeUrl] = useState('');
+  const [isImportingYouTube, setIsImportingYouTube] = useState(false);
+  const [youTubeError, setYouTubeError] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
+  const [trimStartText, setTrimStartText] = useState(formatTimeInput(0));
+  const [trimEndText, setTrimEndText] = useState(formatTimeInput(0));
+  const [committedTrimStart, setCommittedTrimStart] = useState(0);
+  const [committedTrimEnd, setCommittedTrimEnd] = useState(0);
   const [waveformError, setWaveformError] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
 
@@ -40,6 +71,7 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
 
   const resetToDropzone = useCallback(() => {
     setPickedFile(null);
+    setInputSource(null);
     setFileRecord(null);
     setUploadPhase('idle');
     setWasReused(false);
@@ -53,8 +85,11 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
     const file = fileList?.[0];
     if (!file) return;
     setPickedFile(file);
+    setInputSource('local');
     setFileRecord(null);
+    setUploadPhase('idle');
     setWasReused(false);
+    setYouTubeError(null);
     setDuration(0);
     setTrimStart(0);
     setTrimEnd(0);
@@ -63,7 +98,7 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
 
   // Upload/dedup flow — runs in parallel with the client-side waveform decode.
   useEffect(() => {
-    if (!pickedFile) return;
+    if (!pickedFile || inputSource !== 'local') return;
     let cancelled = false;
 
     (async () => {
@@ -94,12 +129,43 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
     return () => {
       cancelled = true;
     };
-  }, [pickedFile, retryToken]);
+  }, [inputSource, pickedFile, retryToken]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     handleFileSelected(e.dataTransfer.files);
+  };
+
+  const handleYouTubeImport = async () => {
+    const url = youTubeUrl.trim();
+    if (!url) {
+      setYouTubeError('Paste a YouTube video URL to continue.');
+      return;
+    }
+
+    setYouTubeError(null);
+    setIsImportingYouTube(true);
+    try {
+      const importedFileRecord = await filesService.importYouTube(url);
+      const importedFile = await filesService.getContentAsFile(importedFileRecord);
+      setInputSource('youtube');
+      setPickedFile(importedFile);
+      setFileRecord(importedFileRecord);
+      setUploadPhase('ready');
+      setWasReused(false);
+      setDuration(0);
+      setTrimStart(0);
+      setTrimEnd(0);
+      setWaveformError(false);
+    } catch (error) {
+      const message = isAxiosError(error) && typeof error.response?.data === 'string'
+        ? error.response.data
+        : 'Unable to import audio from that YouTube video.';
+      setYouTubeError(message);
+    } finally {
+      setIsImportingYouTube(false);
+    }
   };
 
   const handleTrimStartChange = (value: number) => {
@@ -114,6 +180,38 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
     const clamped = Math.min(duration, Math.max(value, trimStart));
     setTrimEnd(clamped);
     waveformRef.current?.setRegion(trimStart, clamped);
+  };
+
+  // Keep the editable time text in sync whenever the trim bounds change from
+  // elsewhere (waveform drag, reset, initial load) — but not while the user
+  // is actively typing, since that's handled locally until commit. Resetting
+  // state during render (instead of in an effect) avoids an extra render pass.
+  if (trimStart !== committedTrimStart) {
+    setCommittedTrimStart(trimStart);
+    setTrimStartText(formatTimeInput(trimStart));
+  }
+
+  if (trimEnd !== committedTrimEnd) {
+    setCommittedTrimEnd(trimEnd);
+    setTrimEndText(formatTimeInput(trimEnd));
+  }
+
+  const commitTrimStartText = () => {
+    const parsed = parseTimeInput(trimStartText);
+    if (parsed === null) {
+      setTrimStartText(formatTimeInput(trimStart));
+      return;
+    }
+    handleTrimStartChange(parsed);
+  };
+
+  const commitTrimEndText = () => {
+    const parsed = parseTimeInput(trimEndText);
+    if (parsed === null) {
+      setTrimEndText(formatTimeInput(trimEnd));
+      return;
+    }
+    handleTrimEndChange(parsed);
   };
 
   const handleResetSelection = () => {
@@ -162,29 +260,75 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
         </CardHeader>
         <CardContent className="space-y-4">
           {!pickedFile ? (
-            <div
-              className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
-                isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/30 hover:border-primary/50'
-              }`}
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={handleDrop}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="audio/*"
-                className="hidden"
-                onChange={(e) => handleFileSelected(e.target.files)}
-              />
+            <div className="space-y-5">
+              <div
+                className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
+                  isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/30 hover:border-primary/50'
+                }`}
+                onClick={() => !isImportingYouTube && fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (!isImportingYouTube) setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  if (!isImportingYouTube) handleDrop(e);
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  disabled={isImportingYouTube}
+                  onChange={(e) => handleFileSelected(e.target.files)}
+                />
+                <div className="space-y-2">
+                  <p className="text-2xl">🎵</p>
+                  <p className="font-medium">Drop an audio file here or click to browse</p>
+                  <p className="text-sm text-muted-foreground">Any audio format your browser can decode</p>
+                </div>
+              </div>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-3 text-muted-foreground">Or paste a YouTube URL</span>
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <p className="text-2xl">🎵</p>
-                <p className="font-medium">Drop an audio file here or click to browse</p>
-                <p className="text-sm text-muted-foreground">Any audio format your browser can decode</p>
+                <Label htmlFor="youtube-url">YouTube video URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="youtube-url"
+                    type="url"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    value={youTubeUrl}
+                    disabled={isImportingYouTube}
+                    onChange={(e) => setYouTubeUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleYouTubeImport();
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => void handleYouTubeImport()}
+                    disabled={isImportingYouTube || !youTubeUrl.trim()}
+                  >
+                    <Download className="size-4" />
+                    {isImportingYouTube ? 'Importing…' : 'Import'}
+                  </Button>
+                </div>
+                {isImportingYouTube && (
+                  <p className="text-sm text-muted-foreground">Downloading and preparing an MP3 preview…</p>
+                )}
+                {youTubeError && <p className="text-sm text-red-600">{youTubeError}</p>}
               </div>
             </div>
           ) : (
@@ -238,27 +382,43 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
 
               <div className="flex items-end gap-4">
                 <div className="space-y-1">
-                  <Label htmlFor="trim-start">Start ({formatTime(trimStart)})</Label>
+                  <Label htmlFor="trim-start">Start</Label>
                   <Input
                     id="trim-start"
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={trimStart}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="m:ss"
+                    className="w-24"
+                    value={trimStartText}
                     disabled={waveformError}
-                    onChange={(e) => handleTrimStartChange(Number(e.target.value))}
+                    onChange={(e) => setTrimStartText(e.target.value)}
+                    onBlur={commitTrimStartText}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="trim-end">End ({formatTime(trimEnd)})</Label>
+                  <Label htmlFor="trim-end">End</Label>
                   <Input
                     id="trim-end"
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={trimEnd}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="m:ss"
+                    className="w-24"
+                    value={trimEndText}
                     disabled={waveformError}
-                    onChange={(e) => handleTrimEndChange(Number(e.target.value))}
+                    onChange={(e) => setTrimEndText(e.target.value)}
+                    onBlur={commitTrimEndText}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
                   />
                 </div>
                 <Button variant="outline" size="sm" onClick={handleResetSelection} disabled={waveformError}>

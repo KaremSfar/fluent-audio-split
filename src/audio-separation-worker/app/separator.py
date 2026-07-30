@@ -69,6 +69,14 @@ def _build_arch_dict(ap: dict, param_map: dict) -> dict | None:
     return result or None
 
 
+# Matches the default shown in the front-end's advanced params UI
+# (src/front/src/lib/advancedParams.ts). Without this, LocalAudioSeparator falls
+# back to the SDK's own default ("WAV") and RemoteAudioSeparator falls back to
+# the remote API client's default ("flac") whenever the front-end doesn't send
+# an explicit output_format, so the two backends silently disagree with the UI.
+_DEFAULT_OUTPUT_FORMAT = "MP3"
+
+
 class AudioSeparator(ABC):
     """Strategy interface for audio stem separation."""
 
@@ -106,6 +114,7 @@ class LocalAudioSeparator(AudioSeparator):
         from audio_separator.separator import Separator
 
         ap = advanced_params or {}
+        ap.setdefault("output_format", _DEFAULT_OUTPUT_FORMAT)
         models = [model_name] + (extra_models or [])
 
         common_kwargs = {k: ap[k] for k in _COMMON_KEYS if k in ap}
@@ -153,6 +162,7 @@ class RemoteAudioSeparator(AudioSeparator):
         advanced_params: dict | None = None,
     ) -> list[str]:
         ap = advanced_params or {}
+        ap.setdefault("output_format", _DEFAULT_OUTPUT_FORMAT)
         models = [model_name] + (extra_models or [])
 
         result = self.client.separate_audio_and_wait(

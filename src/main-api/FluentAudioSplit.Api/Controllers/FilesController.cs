@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
 using FluentAudioSplit.Api.Dtos;
+using FluentAudioSplit.Api.Services;
 using FluentAudioSplit.Domain.Entities;
 using FluentAudioSplit.Infrastructure.Persistence;
 using FluentAudioSplit.Infrastructure.Storage;
@@ -17,15 +18,18 @@ public class FilesController : ControllerBase
 {
     private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
     private readonly IFileStorageProvider _storage;
+    private readonly IYouTubeAudioImportService _youTubeAudioImportService;
     private readonly ILogger<FilesController> _logger;
 
     public FilesController(
         IDbContextFactory<ApplicationDbContext> dbFactory,
         IFileStorageProvider storage,
+        IYouTubeAudioImportService youTubeAudioImportService,
         ILogger<FilesController> logger)
     {
         _dbFactory = dbFactory;
         _storage = storage;
+        _youTubeAudioImportService = youTubeAudioImportService;
         _logger = logger;
     }
 
@@ -63,6 +67,24 @@ public class FilesController : ControllerBase
         return Ok(ToDto(record));
     }
 
+    [HttpPost("import-youtube")]
+    public async Task<ActionResult<FileRecordDto>> ImportYouTube(
+        ImportYouTubeAudioRequest request,
+        CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+        try
+        {
+            var record = await _youTubeAudioImportService.ImportAsync(userId, request.Url, ct);
+            return Ok(ToDto(record));
+        }
+        catch (YouTubeAudioImportException exception)
+        {
+            return BadRequest(exception.Message);
+        }
+    }
+
     [HttpGet("by-hash/{hash}")]
     public async Task<ActionResult<FileRecordDto>> FindByHash(string hash, CancellationToken ct)
     {
@@ -91,6 +113,21 @@ public class FilesController : ControllerBase
             .ToListAsync(ct);
 
         return Ok(records.Select(ToDto).ToList());
+    }
+
+    [HttpGet("{id:guid}/content")]
+    public async Task<IActionResult> GetContent(Guid id, CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var record = await db.FileRecords
+            .FirstOrDefaultAsync(file => file.Id == id && file.UserId == userId, ct);
+        if (record is null || !await _storage.ExistsAsync(record.StoragePath, ct))
+            return NotFound();
+
+        var stream = await _storage.ReadAsync(record.StoragePath, ct);
+        return File(stream, record.ContentType, record.OriginalFileName, enableRangeProcessing: true);
     }
 
     [HttpDelete("{id:guid}")]

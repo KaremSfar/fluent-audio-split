@@ -47,10 +47,7 @@ export default function ExecutionsListPage() {
       </AppHeader>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold tracking-tight">Execution History</h1>
-          <Button onClick={() => navigate('/workflows/new')}>⚡ New Execution</Button>
-        </div>
+        <h1 className="text-3xl font-bold tracking-tight">Execution History</h1>
 
         <Card>
           <CardHeader>
@@ -62,28 +59,32 @@ export default function ExecutionsListPage() {
             ) : executions.length === 0 ? (
               <p className="text-muted-foreground py-4 text-center">No executions yet.</p>
             ) : (
-              <Table>
+              <Table className="table-fixed min-w-[720px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Workflow</TableHead>
-                    <TableHead>File</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="w-[24%]">Workflow</TableHead>
+                    <TableHead className="w-[30%]">File</TableHead>
+                    <TableHead className="w-[120px] whitespace-nowrap">Status</TableHead>
+                    <TableHead className="w-[150px] whitespace-nowrap">Created</TableHead>
+                    <TableHead className="w-[80px] whitespace-nowrap text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {executions.map((ex) => (
                     <TableRow key={ex.id}>
-                      <TableCell className="font-medium">{ex.workflowName}</TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {ex.inputFile?.originalFileName ?? '—'}
+                      <TableCell className="font-medium">
+                        <div className="truncate" title={ex.workflowName}>{ex.workflowName}</div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-muted-foreground">
+                        <div className="truncate" title={ex.inputFile?.originalFileName}>
+                          {ex.inputFile?.originalFileName ?? '—'}
+                        </div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <StatusBadge status={ex.status} />
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{formatDate(ex.createdAt)}</TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(ex.createdAt)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right">
                         <Link to={`/executions/${ex.id}`}>
                           <Button size="sm" variant="outline">View →</Button>
                         </Link>
