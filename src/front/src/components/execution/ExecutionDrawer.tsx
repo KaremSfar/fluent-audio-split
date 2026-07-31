@@ -1,7 +1,8 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useNowTick } from '@/hooks/useNowTick';
 import { StatusBadge } from './StatusBadge';
 import { StemsPlayerGroup } from './StemsPlayerGroup';
+import type { StemWaveformHandle } from './StemWaveformPlayer';
 import { Button } from '@/components/ui/button';
 import { filesService } from '@/services/filesService';
 import type { NodeExecution, WorkflowExecutionStatus } from '@/types/execution';
@@ -47,6 +48,11 @@ export function ExecutionDrawer({
   onClose,
 }: ExecutionDrawerProps) {
   const [collapsed, setCollapsed] = useState(false);
+
+  // Shared across every node row's StemsPlayerGroup in this drawer — playing/seeking one node's
+  // stems joins/moves any other node's stems already loaded, instead of each node only staying in
+  // sync with itself.
+  const stemSyncGroupRef = useRef<Set<StemWaveformHandle>>(new Set());
 
   // Keep the live "Running" durations advancing while any node is in progress.
   useNowTick(nodeExecutions.some((n) => n.status === 'Running'));
@@ -196,7 +202,12 @@ export function ExecutionDrawer({
 
                 {/* Output stems: inline waveform players (synced) + download */}
                 {node.status === 'Completed' && Object.keys(node.outputArtifactPaths).length > 0 && (
-                  <StemsPlayerGroup stems={node.outputArtifactPaths} compact onDownload={handleDownload} />
+                  <StemsPlayerGroup
+                    stems={node.outputArtifactPaths}
+                    compact
+                    onDownload={handleDownload}
+                    syncGroupRef={stemSyncGroupRef}
+                  />
                 )}
               </div>
             </div>

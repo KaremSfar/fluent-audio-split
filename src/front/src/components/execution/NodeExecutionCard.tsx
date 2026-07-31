@@ -3,7 +3,7 @@ import type { WorkflowNode } from '@/types/workflow';
 import { StatusBadge } from '@/components/execution/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { StemsPlayerGroup } from '@/components/execution/StemsPlayerGroup';
+import { StemsPlayerGroup, type StemsPlayerGroupProps } from '@/components/execution/StemsPlayerGroup';
 
 interface NodeExecutionCardProps {
   node: NodeExecution;
@@ -11,6 +11,9 @@ interface NodeExecutionCardProps {
   onRetry: () => void;
   onDownload: (path: string) => void;
   isRetrying: boolean;
+  /** Shared across every node's card on the page so playing/seeking one node's stems stays in
+   * sync with any other node's stems already playing. See `StemsPlayerGroup`. */
+  syncGroupRef?: StemsPlayerGroupProps['syncGroupRef'];
 }
 
 function formatTime(iso?: string): string {
@@ -31,6 +34,7 @@ export function NodeExecutionCard({
   onRetry,
   onDownload,
   isRetrying,
+  syncGroupRef,
 }: NodeExecutionCardProps) {
   return (
     <Card>
@@ -85,7 +89,7 @@ export function NodeExecutionCard({
         )}
 
         {node.status === 'Completed' && Object.keys(node.outputArtifactPaths).length > 0 && (
-          <StemsPlayerGroup stems={node.outputArtifactPaths} onDownload={onDownload} />
+          <StemsPlayerGroup stems={node.outputArtifactPaths} onDownload={onDownload} syncGroupRef={syncGroupRef} />
         )}
       </CardContent>
     </Card>

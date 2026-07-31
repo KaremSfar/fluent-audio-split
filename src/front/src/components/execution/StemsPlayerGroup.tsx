@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type MutableRefObject } from 'react';
 import { Play, Pause, Loader2, Volume2, VolumeX, Headphones } from 'lucide-react';
 import { StemWaveformPlayer, type StemWaveformHandle } from './StemWaveformPlayer';
 
@@ -8,6 +8,15 @@ export interface StemsPlayerGroupProps {
   /** Compact layout for the in-canvas execution drawer; full layout otherwise. */
   compact?: boolean;
   onDownload: (path: string) => void;
+  /**
+   * Shared across every node execution's `StemsPlayerGroup` in the same page (see
+   * `ExecutionPage`/`ExecutionDrawer`, which create one and pass it to every node). All stems —
+   * whether from this node or another — were split from (or chained from) the same original
+   * track, so they share one timeline: playing this node's stems while another node is already
+   * playing joins that position instead of starting over at 0, and seeking any stem anywhere
+   * moves every loaded stem in every node. Optional so the group still works standalone.
+   */
+  syncGroupRef?: MutableRefObject<Set<StemWaveformHandle>>;
 }
 
 /**
@@ -16,11 +25,15 @@ export interface StemsPlayerGroupProps {
  * stem having its own play button. Per-stem rows only carry Mute and Solo, so you mix stems that
  * are already playing in sync rather than starting independent, unsynced clips.
  */
-export function StemsPlayerGroup({ stems, compact = false, onDownload }: StemsPlayerGroupProps) {
+export function StemsPlayerGroup({ stems, compact = false, onDownload, syncGroupRef }: StemsPlayerGroupProps) {
   const entries = Object.entries(stems);
   // One imperative handle per stem, keyed by stem name — lets the master transport below drive
   // every stem's wavesurfer instance (load/play/pause/mute) without owning them directly.
   const handlesRef = useRef<Record<string, StemWaveformHandle | null>>({});
+  // Falls back to a local, single-node registry when no page-level one is supplied, so this
+  // component still works without cross-node wiring.
+  const localSyncRef = useRef<Set<StemWaveformHandle>>(new Set());
+  const syncRegistry = syncGroupRef ?? localSyncRef;
 
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'ready'>('idle');
   const [isPlaying, setIsPlaying] = useState(false);
@@ -33,6 +46,26 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload }: StemsPl
     }
   };
 
+  const registerHandle = (stem: string, handle: StemWaveformHandle | null) => {
+    const prev = handlesRef.current[stem];
+    if (prev) syncRegistry.current.delete(prev);
+    handlesRef.current[stem] = handle;
+    if (handle) syncRegistry.current.add(handle);
+  };
+
+  // If a stem is already playing anywhere on the page (this node or another), line this node's
+  // stems up at that same position before starting — that's what keeps whole nodes in sync with
+  // each other, not just the stems within one node.
+  const joinTimelineInProgress = () => {
+    for (const handle of syncRegistry.current) {
+      if (handle.isPlaying()) {
+        const t = handle.getCurrentTime();
+        forEachHandle((h) => h.setTime(t));
+        return;
+      }
+    }
+  };
+
   const handleMasterPlayPause = async () => {
     if (loadState === 'loading') return;
 
@@ -40,6 +73,7 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload }: StemsPl
       setLoadState('loading');
       await Promise.all(entries.map(([stem]) => handlesRef.current[stem]?.load()));
       setLoadState('ready');
+      joinTimelineInProgress();
       // Start every stem together — this is the whole point of a single master transport
       // instead of per-stem play buttons: nothing can start ahead of, or behind, anything else.
       await Promise.all(entries.map(([stem]) => handlesRef.current[stem]?.play()));
@@ -51,6 +85,7 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload }: StemsPl
       forEachHandle((h) => h.pause());
       setIsPlaying(false);
     } else {
+      joinTimelineInProgress();
       await Promise.all(entries.map(([stem]) => handlesRef.current[stem]?.play()));
       setIsPlaying(true);
     }
@@ -79,12 +114,19 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload }: StemsPl
     });
   };
 
-  // Clicking/dragging on any one stem's waveform to seek jumps every other stem to the exact
-  // same moment — otherwise seeking one stem would silently pull it out of sync with the rest.
-  const handleSeek = (fromStem: string, time: number) => {
-    for (const [stem] of entries) {
-      if (stem !== fromStem) handlesRef.current[stem]?.setTime(time);
-    }
+  // Clicking/dragging on any stem's waveform anywhere on the page — this node or another — seeks
+  // every loaded stem in every node to the exact same moment, otherwise seeking one would
+  // silently pull it out of sync with the rest.
+  const handleSeek = (time: number) => {
+    for (const handle of syncRegistry.current) handle.setTime(time);
+  };
+
+  // A stem reaching the end on its own doesn't otherwise mark anything as stopped — without this
+  // the master button would keep showing Pause, and pressing Play again would try to resume from
+  // the very end (immediately finishing again) instead of restarting from the top.
+  const handleFinish = () => {
+    setIsPlaying(false);
+    forEachHandle((h) => h.setTime(0));
   };
 
   const isLoading = loadState === 'loading';
@@ -142,8 +184,9 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload }: StemsPl
                 <StemWaveformPlayer
                   path={path}
                   compact
-                  onSeek={(time) => handleSeek(stem, time)}
-                  ref={(handle) => { handlesRef.current[stem] = handle; }}
+                  onSeek={handleSeek}
+                  onFinish={handleFinish}
+                  ref={(handle) => registerHandle(stem, handle)}
                 />
               </div>
               <button
@@ -201,8 +244,9 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload }: StemsPl
                 </button>
                 <StemWaveformPlayer
                   path={path}
-                  onSeek={(time) => handleSeek(stem, time)}
-                  ref={(handle) => { handlesRef.current[stem] = handle; }}
+                  onSeek={handleSeek}
+                  onFinish={handleFinish}
+                  ref={(handle) => registerHandle(stem, handle)}
                 />
                 <button
                   type="button"

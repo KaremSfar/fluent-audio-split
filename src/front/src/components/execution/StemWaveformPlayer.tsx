@@ -10,6 +10,9 @@ interface StemWaveformPlayerProps {
   /** Fired when the user clicks/drags on this stem's waveform to seek. The parent group uses
    * this to jump every other stem to the same position, keeping the whole node in sync. */
   onSeek?: (time: number) => void;
+  /** Fired when this stem reaches the end on its own (not via pause). The group uses this to
+   * reset its master Play/Pause state, since nothing else marks playback as stopped. */
+  onFinish?: () => void;
 }
 
 /** Imperative controls exposed to `StemsPlayerGroup`, which drives every stem's playback
@@ -24,6 +27,8 @@ export interface StemWaveformHandle {
   /** Jump to a specific time (seconds) without changing play/pause state — used to line this
    * stem back up after a sibling stem is seeked by the user. */
   setTime: (time: number) => void;
+  isPlaying: () => boolean;
+  getCurrentTime: () => number;
 }
 
 /**
@@ -33,16 +38,18 @@ export interface StemWaveformHandle {
  * nothing is fetched until the group's `load()` is called (on the first Play press).
  */
 export const StemWaveformPlayer = forwardRef<StemWaveformHandle, StemWaveformPlayerProps>(
-  function StemWaveformPlayer({ path, compact = false, onSeek }, ref) {
+  function StemWaveformPlayer({ path, compact = false, onSeek, onFinish }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const wavesurferRef = useRef<WaveSurfer | null>(null);
     const objectUrlRef = useRef<string | null>(null);
     const loadPromiseRef = useRef<Promise<void> | null>(null);
     const [error, setError] = useState(false);
-    // Read via a ref inside the wavesurfer event handler below so re-registering the listener on
+    // Read via a ref inside the wavesurfer event handlers below so re-registering the listener on
     // every render (and stale-closure bugs) isn't a concern.
     const onSeekRef = useRef(onSeek);
     onSeekRef.current = onSeek;
+    const onFinishRef = useRef(onFinish);
+    onFinishRef.current = onFinish;
 
     // Tear down the wavesurfer instance and revoke the blob URL on unmount / path change.
     useEffect(() => {
@@ -91,6 +98,7 @@ export const StemWaveformPlayer = forwardRef<StemWaveformHandle, StemWaveformPla
               // Clicking/dragging on any one stem's waveform seeks the whole group — the group
               // is what re-broadcasts this to every other stem via their `setTime` handle.
               wavesurfer.on('interaction', (newTime) => onSeekRef.current?.(newTime));
+              wavesurfer.on('finish', () => onFinishRef.current?.());
 
               await new Promise<void>((resolve) => {
                 wavesurfer.once('ready', () => resolve());
@@ -114,6 +122,8 @@ export const StemWaveformPlayer = forwardRef<StemWaveformHandle, StemWaveformPla
         setTime: (time: number) => {
           wavesurferRef.current?.setTime(time);
         },
+        isPlaying: () => wavesurferRef.current?.isPlaying() ?? false,
+        getCurrentTime: () => wavesurferRef.current?.getCurrentTime() ?? 0,
       }),
       [path, compact],
     );
