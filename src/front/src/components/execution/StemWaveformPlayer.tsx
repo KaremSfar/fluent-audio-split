@@ -7,6 +7,9 @@ interface StemWaveformPlayerProps {
   path: string;
   /** Render a shorter waveform, suited to the compact in-canvas drawer. */
   compact?: boolean;
+  /** Fired when the user clicks/drags on this stem's waveform to seek. The parent group uses
+   * this to jump every other stem to the same position, keeping the whole node in sync. */
+  onSeek?: (time: number) => void;
 }
 
 /** Imperative controls exposed to `StemsPlayerGroup`, which drives every stem's playback
@@ -18,6 +21,9 @@ export interface StemWaveformHandle {
   play: () => Promise<void>;
   pause: () => void;
   setMuted: (muted: boolean) => void;
+  /** Jump to a specific time (seconds) without changing play/pause state — used to line this
+   * stem back up after a sibling stem is seeked by the user. */
+  setTime: (time: number) => void;
 }
 
 /**
@@ -27,12 +33,16 @@ export interface StemWaveformHandle {
  * nothing is fetched until the group's `load()` is called (on the first Play press).
  */
 export const StemWaveformPlayer = forwardRef<StemWaveformHandle, StemWaveformPlayerProps>(
-  function StemWaveformPlayer({ path, compact = false }, ref) {
+  function StemWaveformPlayer({ path, compact = false, onSeek }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const wavesurferRef = useRef<WaveSurfer | null>(null);
     const objectUrlRef = useRef<string | null>(null);
     const loadPromiseRef = useRef<Promise<void> | null>(null);
     const [error, setError] = useState(false);
+    // Read via a ref inside the wavesurfer event handler below so re-registering the listener on
+    // every render (and stale-closure bugs) isn't a concern.
+    const onSeekRef = useRef(onSeek);
+    onSeekRef.current = onSeek;
 
     // Tear down the wavesurfer instance and revoke the blob URL on unmount / path change.
     useEffect(() => {
@@ -75,12 +85,12 @@ export const StemWaveformPlayer = forwardRef<StemWaveformHandle, StemWaveformPla
                 cursorColor: '#7c3aed',
                 height: compact ? 40 : 64,
                 url: objectUrl,
-                // Seeking is done at the group level (or not at all) — click-to-seek on a single
-                // stem would desync it from the rest of the node's playback.
-                interact: false,
               });
               wavesurferRef.current = wavesurfer;
               wavesurfer.on('error', () => setError(true));
+              // Clicking/dragging on any one stem's waveform seeks the whole group — the group
+              // is what re-broadcasts this to every other stem via their `setTime` handle.
+              wavesurfer.on('interaction', (newTime) => onSeekRef.current?.(newTime));
 
               await new Promise<void>((resolve) => {
                 wavesurfer.once('ready', () => resolve());
@@ -100,6 +110,9 @@ export const StemWaveformPlayer = forwardRef<StemWaveformHandle, StemWaveformPla
         },
         setMuted: (muted: boolean) => {
           wavesurferRef.current?.setMuted(muted);
+        },
+        setTime: (time: number) => {
+          wavesurferRef.current?.setTime(time);
         },
       }),
       [path, compact],

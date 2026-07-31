@@ -79,6 +79,14 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload }: StemsPl
     });
   };
 
+  // Clicking/dragging on any one stem's waveform to seek jumps every other stem to the exact
+  // same moment — otherwise seeking one stem would silently pull it out of sync with the rest.
+  const handleSeek = (fromStem: string, time: number) => {
+    for (const [stem] of entries) {
+      if (stem !== fromStem) handlesRef.current[stem]?.setTime(time);
+    }
+  };
+
   const isLoading = loadState === 'loading';
   const masterButton = (
     <button
@@ -134,6 +142,7 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload }: StemsPl
                 <StemWaveformPlayer
                   path={path}
                   compact
+                  onSeek={(time) => handleSeek(stem, time)}
                   ref={(handle) => { handlesRef.current[stem] = handle; }}
                 />
               </div>
@@ -192,6 +201,7 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload }: StemsPl
                 </button>
                 <StemWaveformPlayer
                   path={path}
+                  onSeek={(time) => handleSeek(stem, time)}
                   ref={(handle) => { handlesRef.current[stem] = handle; }}
                 />
                 <button
