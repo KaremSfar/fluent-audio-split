@@ -12,6 +12,11 @@ decision or a riskier change rather than a mechanical fix. Background: Serena me
 
 ## 1. Branched-graph `PartiallyFailed` semantics — freezes live branches & never upgrades (HIGH)
 
+> ✅ **Resolved** (`users/k_sfar/todo-enhancements`): `Services/ExecutionReconciler.cs` now settles
+> the terminal status only once no node is `Pending`/`Queued`/`Running`, called from both
+> `NodeCompletedConsumer` and `NodeFailedConsumer`, emitting exactly one terminal SSE event on the
+> transition. Branched DAGs no longer freeze sibling branches or get stuck `PartiallyFailed` forever.
+
 **Where:** `src/main-api/.../Consumers/NodeFailedConsumer.cs:47-48`,
 `NodeCompletedConsumer.cs:112-118`; `src/front/.../pages/WorkflowCanvasPage.tsx:201-205,239-244`.
 
@@ -37,6 +42,12 @@ stays `PartiallyFailed` forever even if all other branches finish.
 
 ## 2. `Failed` / `Cancelled` execution states are unreachable; no cancel endpoint (MEDIUM)
 
+> ✅ **Resolved**: `ExecutionReconciler` can now settle `Failed` (no node ever completed) in
+> addition to `PartiallyFailed`/`Completed`. `POST /api/executions/{id}/cancel`
+> (`ExecutionsController.Cancel`) sets `Cancelled` + publishes `ExecutionCancelled`;
+> `NodeCompletedConsumer` guards against resurrecting a cancelled execution. Frontend maps all 5
+> statuses in `useExecutionStream.ts` and has a Cancel button on the canvas while running.
+
 **Where:** `WorkflowExecutionStatus.cs` (enum defines them); no assignment anywhere.
 `useExecutionStream.ts:51-56` maps only `ExecutionRunning/Completed/PartiallyFailed`.
 
@@ -49,6 +60,12 @@ terminal DB state so stream and DB never diverge; add a cancel endpoint that set
 publishes `ExecutionCancelled`; map the new types in `useExecutionStream.ts`.
 
 ## 3. Workflow version node-ID drift breaks overlays after edit-during-run (MEDIUM)
+
+> ✅ **Resolved**: `WorkflowExecutionDto.WorkflowVersionId` and node label/model resolution from the
+> pinned version were already in place; this session added `WorkflowDto.VersionId` (the *latest*
+> version) so the client can detect drift, plus an amber "Workflow changed since this execution
+> ran" banner on `WorkflowCanvasPage` when `activeExecution.workflowVersionId !== workflow.versionId`.
+> Save / + Add Node were already gated on `isRunning`. Verified live in the browser.
 
 **Where:** `WorkflowsController.cs:108-146` (Update mints a new version), `:178` (Execute pins
 `latestVersion`); `WorkflowCanvasPage.tsx:247-293` (overlay keys by latest-version node id);
@@ -67,6 +84,14 @@ execution overlay is active).
 
 ## 4. No SSE replay/snapshot for late subscribers (MEDIUM)
 
+> ✅ **Resolved**: `ExecutionEventBus.Subscribe`/`Unsubscribe` register a subscriber synchronously;
+> `ExecutionsController.StreamExecution` subscribes first, then sends a `{ type: "Snapshot",
+> execution }` event with the full current DB state, then streams live events — no backlog needed,
+> a subscriber can never miss the window between DB-read and stream-start. Frontend:
+> `useExecutionStream({ onSnapshot })`, wired in both `WorkflowCanvasPage` and `ExecutionPage`.
+> (Also added an ownership check on the stream endpoint that was previously missing — any
+> authenticated user could stream any execution id.)
+
 **Where:** `src/main-api/.../Services/ExecutionEventBus.cs:18-33,35-59`;
 `ExecutionsController.StreamExecution:75-89`.
 
@@ -80,6 +105,10 @@ a bounded per-execution ring buffer and replay it to new subscribers.
 
 ## 5. Gateway nginx SSE robustness (LOW / infra)
 
+> ✅ **Already implemented** — `nginx.conf` already had `proxy_http_version 1.1;`,
+> `proxy_set_header Connection "";`, `proxy_buffering off;` and `proxy_read_timeout 3600s;` on the
+> `/api/` location. No changes needed.
+
 **Where:** `nginx.conf` `location /api/`.
 
 **Problem:** Real-time buffering is handled (backend sends `X-Accel-Buffering: no`), but the
@@ -91,6 +120,12 @@ proxy lacks `proxy_read_timeout` (default 60s closes idle SSE connections mid-no
 (`proxy_buffering off;` is optional given the X-Accel-Buffering header).
 
 ## 6. Harden node-execution idempotency at the data layer (LOW)
+
+> ✅ **Resolved**: `NodeCompletedConsumer` now skips creating a downstream `NodeExecution` if a
+> non-`Failed` row already exists for `(WorkflowExecutionId, downstream.Id)`. Added a DB-level
+> unique index on `(WorkflowExecutionId, WorkflowNodeId, Attempt)`
+> (migration `20260730235350_AddNodeExecutionUniqueIndex`) as a backstop. (Still no MassTransit
+> inbox — considered out of scope for this pass.)
 
 **Where:** `NodeCompletedConsumer.cs` (chaining), `ApplicationDbContext` (NodeExecution mapping).
 
@@ -104,6 +139,12 @@ retry of a node that already spawned children could still create duplicate downs
 
 ## 7. Minor / housekeeping (LOW)
 
+> ✅ **Resolved** — all four bullets below addressed: `useNowTick` now returns the current epoch-ms
+> so `AudioSeparationNode`'s `elapsed` no longer reads `Date.now()` during render; `storybook-static`
+> added to `eslint.config.js` ignores; the dead `:5001` fallback in `apiClient.ts`/`filesService.ts`/
+> `useExecutionStream.ts` aligned to `:8080`; `App.tsx` routes converted to `React.lazy` +
+> `Suspense`, splitting the bundle into per-route chunks (no more single >500kB chunk).
+
 - `AudioSeparationNode.tsx` `elapsed` reads the wall-clock during render (`react-hooks/purity`
   lint). Now that `useNowTick` drives re-renders, consider deriving elapsed from the tick to
   satisfy the rule.
@@ -114,6 +155,13 @@ retry of a node that already spawned children could still create duplicate downs
 - Vite bundle > 500 kB — consider route-level code splitting.
 
 ## 8. Transient remote-error classification + auto-retry (LOW/MEDIUM)
+
+> ✅ **Resolved**: `separator.py` now classifies the remote error message (`_is_transient_remote_error`
+> — matches `Errno 22`, `instantiate`, timeouts, connection errors, 5xx) and raises
+> `TransientSeparationError` instead of a generic `RuntimeError` when it looks transient. Added a
+> bounded auto-retry (up to 3 attempts, exponential backoff) in `NodeFailedConsumer` for transient
+> node failures. **Verified live**: this exact path (a real Modal `/download` contention) fired
+> during manual testing and self-healed automatically within 1-2 retries.
 
 **Where:** `src/audio-separation-worker/app/handlers.py` (`is_transient=isinstance(e, OSError)`),
 `src/audio-separation-worker/app/separator.py` (`RemoteAudioSeparator` wraps remote failures as
@@ -136,6 +184,14 @@ manual click.
   already creates a new `NodeExecution` (attempt+1).
 
 ## 9. Modal `/download` endpoint's unconditional `volume.reload()` contends with concurrent writers (LOW/MEDIUM)
+
+> ✅ **Resolved** (deferred fix now applied): `download_file` resolves the filename/path from
+> `modal.Dict` first (no volume I/O), then only calls `volume.reload()` if the file isn't already
+> visible locally; reload retries with backoff (`_reload_volume_with_retry`, ~0.5s→1s→2s, up to 4
+> attempts) on "open files" conflicts before falling back to 404. The dead duplicate
+> `get_file_by_hash_function` (same bug, zero callers) was deleted. **Not yet deployed to Modal**
+> (`modal deploy` was intentionally not run this session) — the worker-side mitigations (item #8)
+> already self-heal against the currently-deployed (unpatched) endpoint in the meantime.
 
 **Where:** `src/modal-deploy/deploy_modal.py` — `download_file` (`/download/{task_id}/{file_hash}`,
 ~line 434-471) and the dead/unused duplicate `get_file_by_hash_function` (~line 274-299).

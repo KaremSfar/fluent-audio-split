@@ -13,6 +13,7 @@ import { NodeExecutionCard } from '@/components/execution/NodeExecutionCard';
 import { AppHeader } from '@/components/layout/AppHeader';
 import type {
   NodeExecution,
+  WorkflowExecution,
   WorkflowExecutionStatus,
   NodeStatusEvent,
   ExecutionStatusEvent,
@@ -85,10 +86,18 @@ export default function ExecutionPage() {
     }
   }, [id, queryClient]);
 
+  const onSnapshot = useCallback((fresh: WorkflowExecution) => {
+    // Full reconciliation on (re)connect — covers events published before this subscriber
+    // attached that the terminal-only invalidate above wouldn't otherwise catch.
+    setNodeExecutions(fresh.nodeExecutions);
+    setExecStatus(fresh.status);
+  }, []);
+
   useExecutionStream({
     executionId: id,
     onNodeStatus,
     onExecutionStatus,
+    onSnapshot,
     enabled: !isTerminal && isAuthenticated,
   });
 

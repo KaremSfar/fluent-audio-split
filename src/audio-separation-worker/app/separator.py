@@ -23,6 +23,26 @@ class TransientSeparationError(RuntimeError):
     (e.g. transient network/storage errors), as opposed to permanent config errors."""
 
 
+_TRANSIENT_REMOTE_ERROR_PATTERNS = (
+    "errno 22",            # cold model-download/caching race (observed failure mode)
+    "invalid argument",
+    "instantiate",         # "...instantiate <X> model..." — model-loading race
+    "timeout", "timed out",
+    "connection reset", "connection refused", "connection aborted",
+    "500", "502", "503", "504",
+    "internal server error", "bad gateway", "service unavailable", "gateway timeout",
+)
+
+
+def _is_transient_remote_error(message: str) -> bool:
+    """Best-effort classification of a remote-API error message as transient (worth an
+    automatic retry) vs. permanent (bad model/config — retrying won't help). The remote
+    error is opaque (a plain string from the API), so this is pattern-matching on known
+    transient failure signatures observed in practice (see TODO.md item #8)."""
+    lowered = message.lower()
+    return any(p in lowered for p in _TRANSIENT_REMOTE_ERROR_PATTERNS)
+
+
 # ── Param name mappings: flat configJson key → Separator dict key ─────────────
 _MDX_PARAM_MAP = {
     "mdx_segment_size": "segment_size",
@@ -198,9 +218,11 @@ class RemoteAudioSeparator(AudioSeparator):
                 )
             return downloaded_files
 
-        raise RuntimeError(
-            f"Remote separation failed: {result.get('error', 'Unknown error')}"
-        )
+        error_message = result.get("error", "Unknown error")
+        full_message = f"Remote separation failed: {error_message}"
+        if _is_transient_remote_error(error_message):
+            raise TransientSeparationError(full_message)
+        raise RuntimeError(full_message)
 
 
 def create_audio_separator() -> AudioSeparator:

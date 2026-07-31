@@ -47,7 +47,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
   const { onRemove, onPlayNode } = useContext(NodeCallbacksContext);
 
   // The "Running" elapsed time is derived from the wall-clock at render time; tick so it advances.
-  useNowTick(execStatus === 'Running');
+  const now = useNowTick(execStatus === 'Running');
 
   const edges = useEdges();
   const connectedStems = new Set(
@@ -84,7 +84,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
   const elapsed = (() => {
     if (!execStartedAt) return null;
     const start = new Date(execStartedAt).getTime();
-    const end = execCompletedAt ? new Date(execCompletedAt).getTime() : Date.now();
+    const end = execCompletedAt ? new Date(execCompletedAt).getTime() : now;
     const s = Math.round((end - start) / 1000);
     return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
   })();

@@ -280,6 +280,7 @@ public class WorkflowsController : ControllerBase
     private static WorkflowDto ToDto(Workflow w, WorkflowVersion version, List<WorkflowNodeDefinition> nodes) => new(
         w.Id,
         w.Name,
+        version.Id,
         nodes.OrderBy(n => n.Order).Select(n => new WorkflowNodeDto(n.Id, n.Order, n.NodeType, n.ConfigJson, n.SourceNodeId, n.SourceOutputName)).ToList(),
         w.CreatedAt,
         w.UpdatedAt);
