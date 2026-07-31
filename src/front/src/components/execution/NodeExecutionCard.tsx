@@ -11,9 +11,9 @@ interface NodeExecutionCardProps {
   onRetry: () => void;
   onDownload: (path: string) => void;
   isRetrying: boolean;
-  /** Shared across every node's card on the page so playing/seeking one node's stems stays in
-   * sync with any other node's stems already playing. See `StemsPlayerGroup`. */
-  syncGroupRef?: StemsPlayerGroupProps['syncGroupRef'];
+  /** Shared across every node's card on the page so all stems play through one audio clock and
+   * stay in exact sync across nodes. See `StemsPlayerGroup`. */
+  engine?: StemsPlayerGroupProps['engine'];
 }
 
 function formatTime(iso?: string): string {
@@ -34,7 +34,7 @@ export function NodeExecutionCard({
   onRetry,
   onDownload,
   isRetrying,
-  syncGroupRef,
+  engine,
 }: NodeExecutionCardProps) {
   return (
     <Card>
@@ -89,7 +89,7 @@ export function NodeExecutionCard({
         )}
 
         {node.status === 'Completed' && Object.keys(node.outputArtifactPaths).length > 0 && (
-          <StemsPlayerGroup stems={node.outputArtifactPaths} onDownload={onDownload} syncGroupRef={syncGroupRef} />
+          <StemsPlayerGroup stems={node.outputArtifactPaths} onDownload={onDownload} engine={engine} />
         )}
       </CardContent>
     </Card>

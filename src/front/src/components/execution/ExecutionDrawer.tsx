@@ -1,8 +1,8 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNowTick } from '@/hooks/useNowTick';
 import { StatusBadge } from './StatusBadge';
 import { StemsPlayerGroup } from './StemsPlayerGroup';
-import type { StemWaveformHandle } from './StemWaveformPlayer';
+import { StemSyncEngine } from './stemSyncEngine';
 import { Button } from '@/components/ui/button';
 import { filesService } from '@/services/filesService';
 import type { NodeExecution, WorkflowExecutionStatus } from '@/types/execution';
@@ -49,10 +49,11 @@ export function ExecutionDrawer({
 }: ExecutionDrawerProps) {
   const [collapsed, setCollapsed] = useState(false);
 
-  // Shared across every node row's StemsPlayerGroup in this drawer — playing/seeking one node's
-  // stems joins/moves any other node's stems already loaded, instead of each node only staying in
-  // sync with itself.
-  const stemSyncGroupRef = useRef<Set<StemWaveformHandle>>(new Set());
+  // Shared across every node row's StemsPlayerGroup in this drawer — every stem plays through this
+  // one engine's single AudioContext clock, so stems in different nodes start in exact phase and
+  // can't drift or echo. Created once, and its audio is torn down when the drawer unmounts.
+  const [stemEngine] = useState(() => new StemSyncEngine());
+  useEffect(() => () => stemEngine.release(), [stemEngine]);
 
   // Keep the live "Running" durations advancing while any node is in progress.
   useNowTick(nodeExecutions.some((n) => n.status === 'Running'));
@@ -206,7 +207,7 @@ export function ExecutionDrawer({
                     stems={node.outputArtifactPaths}
                     compact
                     onDownload={handleDownload}
-                    syncGroupRef={stemSyncGroupRef}
+                    engine={stemEngine}
                   />
                 )}
               </div>

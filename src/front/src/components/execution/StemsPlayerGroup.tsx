@@ -1,100 +1,79 @@
-import { useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useState } from 'react';
 import { Play, Pause, Loader2, Volume2, VolumeX, Headphones } from 'lucide-react';
-import { StemWaveformPlayer, type StemWaveformHandle } from './StemWaveformPlayer';
+import { StemWaveformPlayer } from './StemWaveformPlayer';
+import { StemSyncEngine } from './stemSyncEngine';
 
 export interface StemsPlayerGroupProps {
-  /** Stem display name → storage path, e.g. `node.outputArtifactPaths`. */
+  /** Stem display name → storage path, e.g. `node.outputArtifactPaths`. The path doubles as the
+   *  stem's stable id in the engine registry — every artifact has a distinct path. */
   stems: Record<string, string>;
   /** Compact layout for the in-canvas execution drawer; full layout otherwise. */
   compact?: boolean;
   onDownload: (path: string) => void;
   /**
-   * Shared across every node execution's `StemsPlayerGroup` in the same page (see
-   * `ExecutionPage`/`ExecutionDrawer`, which create one and pass it to every node). All stems —
-   * whether from this node or another — were split from (or chained from) the same original
-   * track, so they share one timeline: playing this node's stems while another node is already
-   * playing joins that position instead of starting over at 0, and seeking any stem anywhere
-   * moves every loaded stem in every node. Optional so the group still works standalone.
+   * Shared across every node execution's `StemsPlayerGroup` on the page (see `ExecutionPage` /
+   * `ExecutionDrawer`, which create one and pass it to every node). All stems — whichever node
+   * they came from — play through this one engine's single `AudioContext` clock, so stems in
+   * different nodes start in exact phase and can neither drift nor echo. Playing this node joins
+   * whatever is already playing, and seeking any waveform moves the whole page. Optional: a
+   * private engine is created when none is supplied, so the group still works standalone.
    */
-  syncGroupRef?: MutableRefObject<Set<StemWaveformHandle>>;
+  engine?: StemSyncEngine;
 }
 
 /**
  * DAW-style stem player for a single node execution: one master transport for the whole node —
- * pressing Play (lazily) loads every stem and starts them all at the same time, instead of each
- * stem having its own play button. Per-stem rows only carry Mute and Solo, so you mix stems that
- * are already playing in sync rather than starting independent, unsynced clips.
+ * pressing Play (lazily) decodes every stem and starts them all on the shared engine clock, instead
+ * of each stem having its own play button. Per-stem rows only carry Mute and Solo, so you mix stems
+ * that are already playing in sync rather than starting independent, unsynced clips.
  */
-export function StemsPlayerGroup({ stems, compact = false, onDownload, syncGroupRef }: StemsPlayerGroupProps) {
+export function StemsPlayerGroup({ stems, compact = false, onDownload, engine: engineProp }: StemsPlayerGroupProps) {
   const entries = Object.entries(stems);
-  // One imperative handle per stem, keyed by stem name — lets the master transport below drive
-  // every stem's wavesurfer instance (load/play/pause/mute) without owning them directly.
-  const handlesRef = useRef<Record<string, StemWaveformHandle | null>>({});
-  // Falls back to a local, single-node registry when no page-level one is supplied, so this
-  // component still works without cross-node wiring.
-  const localSyncRef = useRef<Set<StemWaveformHandle>>(new Set());
-  const syncRegistry = syncGroupRef ?? localSyncRef;
+  const ids = entries.map(([, path]) => path);
+
+  // Fall back to a private engine when no page-level one is supplied, so the group still works
+  // standalone. `new StemSyncEngine()` is cheap — it opens no `AudioContext` until the first play.
+  const [localEngine] = useState(() => new StemSyncEngine());
+  const engine = engineProp ?? localEngine;
+  // Only the local engine is ours to tear down; the shared one is owned by the page.
+  useEffect(() => () => { if (!engineProp) localEngine.release(); }, [engineProp, localEngine]);
 
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'ready'>('idle');
   const [isPlaying, setIsPlaying] = useState(false);
   const [mutedMap, setMutedMap] = useState<Record<string, boolean>>({});
 
-  const forEachHandle = (fn: (handle: StemWaveformHandle) => void) => {
-    for (const [stem] of entries) {
-      const handle = handlesRef.current[stem];
-      if (handle) fn(handle);
-    }
-  };
-
-  const registerHandle = (stem: string, handle: StemWaveformHandle | null) => {
-    const prev = handlesRef.current[stem];
-    if (prev) syncRegistry.current.delete(prev);
-    handlesRef.current[stem] = handle;
-    if (handle) syncRegistry.current.add(handle);
-  };
-
-  // If a stem is already playing anywhere on the page (this node or another), line this node's
-  // stems up at that same position before starting — that's what keeps whole nodes in sync with
-  // each other, not just the stems within one node.
-  const joinTimelineInProgress = () => {
-    for (const handle of syncRegistry.current) {
-      if (handle.isPlaying()) {
-        const t = handle.getCurrentTime();
-        forEachHandle((h) => h.setTime(t));
-        return;
-      }
-    }
-  };
+  // The engine rewinds and notifies every group when the song reaches its end — reset this node's
+  // master Play/Pause so pressing Play restarts from the top instead of resuming at the very end.
+  useEffect(() => engine.onTransportEnded(() => setIsPlaying(false)), [engine]);
 
   const handleMasterPlayPause = async () => {
     if (loadState === 'loading') return;
 
-    if (loadState === 'idle') {
-      setLoadState('loading');
-      await Promise.all(entries.map(([stem]) => handlesRef.current[stem]?.load()));
-      setLoadState('ready');
-      joinTimelineInProgress();
-      // Start every stem together — this is the whole point of a single master transport
-      // instead of per-stem play buttons: nothing can start ahead of, or behind, anything else.
-      await Promise.all(entries.map(([stem]) => handlesRef.current[stem]?.play()));
-      setIsPlaying(true);
+    if (isPlaying) {
+      engine.pause(ids);
+      setIsPlaying(false);
       return;
     }
 
-    if (isPlaying) {
-      forEachHandle((h) => h.pause());
-      setIsPlaying(false);
-    } else {
-      joinTimelineInProgress();
-      await Promise.all(entries.map(([stem]) => handlesRef.current[stem]?.play()));
-      setIsPlaying(true);
+    // Resume the shared AudioContext *synchronously*, inside this click and before any await, or
+    // the browser's autoplay policy keeps it suspended and nothing is audible.
+    engine.ensureContext();
+
+    if (loadState !== 'ready') {
+      setLoadState('loading');
+      // Each stem surfaces its own error state; one bad stem shouldn't block starting the rest.
+      await engine.prepare(ids).catch(() => {});
+      setLoadState('ready');
     }
+    // Start this node's stems on the shared clock — joining any already-playing node in exact phase.
+    engine.play(ids);
+    setIsPlaying(true);
   };
 
   const handleToggleMute = (stem: string) => {
     setMutedMap((prev) => {
       const next = !prev[stem];
-      handlesRef.current[stem]?.setMuted(next);
+      engine.setMuted(stems[stem], next);
       return { ...prev, [stem]: next };
     });
   };
@@ -105,28 +84,13 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload, syncGroup
     const isSoloed = !mutedMap[stem] && entries.every(([s]) => s === stem || mutedMap[s]);
     setMutedMap(() => {
       const next: Record<string, boolean> = {};
-      for (const [s] of entries) {
+      for (const [s, path] of entries) {
         const muted = isSoloed ? false : s !== stem;
         next[s] = muted;
-        handlesRef.current[s]?.setMuted(muted);
+        engine.setMuted(path, muted);
       }
       return next;
     });
-  };
-
-  // Clicking/dragging on any stem's waveform anywhere on the page — this node or another — seeks
-  // every loaded stem in every node to the exact same moment, otherwise seeking one would
-  // silently pull it out of sync with the rest.
-  const handleSeek = (time: number) => {
-    for (const handle of syncRegistry.current) handle.setTime(time);
-  };
-
-  // A stem reaching the end on its own doesn't otherwise mark anything as stopped — without this
-  // the master button would keep showing Pause, and pressing Play again would try to resume from
-  // the very end (immediately finishing again) instead of restarting from the top.
-  const handleFinish = () => {
-    setIsPlaying(false);
-    forEachHandle((h) => h.setTime(0));
   };
 
   const isLoading = loadState === 'loading';
@@ -181,13 +145,7 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload, syncGroup
                 {muted ? <VolumeX className="size-3" /> : <Volume2 className="size-3" />}
               </button>
               <div className="w-32">
-                <StemWaveformPlayer
-                  path={path}
-                  compact
-                  onSeek={handleSeek}
-                  onFinish={handleFinish}
-                  ref={(handle) => registerHandle(stem, handle)}
-                />
+                <StemWaveformPlayer id={path} path={path} engine={engine} compact />
               </div>
               <button
                 type="button"
@@ -242,12 +200,7 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload, syncGroup
                 >
                   {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
                 </button>
-                <StemWaveformPlayer
-                  path={path}
-                  onSeek={handleSeek}
-                  onFinish={handleFinish}
-                  ref={(handle) => registerHandle(stem, handle)}
-                />
+                <StemWaveformPlayer id={path} path={path} engine={engine} />
                 <button
                   type="button"
                   onClick={() => handleToggleSolo(stem)}
@@ -275,4 +228,3 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload, syncGroup
     </div>
   );
 }
-

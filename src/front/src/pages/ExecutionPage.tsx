@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/useAuth';
@@ -10,7 +10,7 @@ import { applyNodeStatusEvent, upsertNodeExecution } from '@/lib/executionState'
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/execution/StatusBadge';
 import { NodeExecutionCard } from '@/components/execution/NodeExecutionCard';
-import type { StemWaveformHandle } from '@/components/execution/StemWaveformPlayer';
+import { StemSyncEngine } from '@/components/execution/stemSyncEngine';
 import { AppHeader } from '@/components/layout/AppHeader';
 import type {
   NodeExecution,
@@ -36,10 +36,11 @@ export default function ExecutionPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
 
-  // Shared across every node's StemsPlayerGroup on this page — playing/seeking one node's stems
-  // joins/moves any other node's stems already loaded, instead of each node's stems only staying
-  // in sync with themselves.
-  const stemSyncGroupRef = useRef<Set<StemWaveformHandle>>(new Set());
+  // Shared across every node's StemsPlayerGroup on this page — every stem plays through this one
+  // engine's single AudioContext clock, so stems in different nodes start in exact phase and can't
+  // drift or echo. Created once for the page's lifetime; its audio is torn down on unmount.
+  const [stemEngine] = useState(() => new StemSyncEngine());
+  useEffect(() => () => stemEngine.release(), [stemEngine]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) navigate('/login');
@@ -198,7 +199,7 @@ export default function ExecutionPage() {
               onRetry={() => retryMutation.mutate({ nodeExecutionId: node.id })}
               onDownload={(path) => filesService.download(path).catch(console.error)}
               isRetrying={retryMutation.isPending}
-              syncGroupRef={stemSyncGroupRef}
+              engine={stemEngine}
             />
           ))}
         </div>
