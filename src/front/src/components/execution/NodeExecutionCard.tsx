@@ -3,7 +3,7 @@ import type { WorkflowNode } from '@/types/workflow';
 import { StatusBadge } from '@/components/execution/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { StemWaveformPlayer } from '@/components/execution/StemWaveformPlayer';
+import { StemsPlayerGroup } from '@/components/execution/StemsPlayerGroup';
 
 interface NodeExecutionCardProps {
   node: NodeExecution;
@@ -85,27 +85,7 @@ export function NodeExecutionCard({
         )}
 
         {node.status === 'Completed' && Object.keys(node.outputArtifactPaths).length > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Output Stems</p>
-            <ul className="space-y-2">
-              {Object.entries(node.outputArtifactPaths).map(([stem, path]) => (
-                <li key={stem} className="rounded-md border border-violet-100 bg-violet-50/40 p-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-violet-600 min-w-[80px] shrink-0">{stem}</span>
-                    <StemWaveformPlayer path={path} />
-                    <button
-                      onClick={() => onDownload(path)}
-                      className="shrink-0 text-sm text-primary hover:underline"
-                      title={`Download ${path.split('/').pop() ?? path}`}
-                      aria-label={`Download ${stem}`}
-                    >
-                      ⬇
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <StemsPlayerGroup stems={node.outputArtifactPaths} onDownload={onDownload} />
         )}
       </CardContent>
     </Card>

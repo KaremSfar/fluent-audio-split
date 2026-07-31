@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useNowTick } from '@/hooks/useNowTick';
 import { StatusBadge } from './StatusBadge';
-import { StemWaveformPlayer } from './StemWaveformPlayer';
+import { StemsPlayerGroup } from './StemsPlayerGroup';
 import { Button } from '@/components/ui/button';
 import { filesService } from '@/services/filesService';
 import type { NodeExecution, WorkflowExecutionStatus } from '@/types/execution';
@@ -194,28 +194,9 @@ export function ExecutionDrawer({
                   </Button>
                 )}
 
-                {/* Output stems: inline waveform player + download */}
+                {/* Output stems: inline waveform players (synced) + download */}
                 {node.status === 'Completed' && Object.keys(node.outputArtifactPaths).length > 0 && (
-                  <div className="flex flex-col items-end gap-1">
-                    {Object.entries(node.outputArtifactPaths).map(([stem, path]) => (
-                      <div key={stem} className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-medium text-violet-600 w-16 shrink-0 truncate text-right">
-                          {stem}
-                        </span>
-                        <div className="w-44">
-                          <StemWaveformPlayer path={path} compact />
-                        </div>
-                        <button
-                          onClick={() => handleDownload(path)}
-                          className="text-[10px] text-primary hover:underline px-1"
-                          title={`Download ${stem}`}
-                          aria-label={`Download ${stem}`}
-                        >
-                          ⬇
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                  <StemsPlayerGroup stems={node.outputArtifactPaths} compact onDownload={handleDownload} />
                 )}
               </div>
             </div>
