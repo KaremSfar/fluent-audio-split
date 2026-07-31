@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using FluentAudioSplit.Api.Dtos;
 using FluentAudioSplit.Api.Messages;
 using FluentAudioSplit.Api.Services;
@@ -75,12 +76,43 @@ public class ExecutionsController : ControllerBase
     [HttpGet("{id:guid}/stream")]
     public async Task StreamExecution(Guid id, CancellationToken ct)
     {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var execution = await db.WorkflowExecutions
+            .Include(we => we.WorkflowVersion)
+                .ThenInclude(v => v.Workflow)
+            .Include(we => we.InputFileRecord)
+            .Include(we => we.NodeExecutions)
+            .FirstOrDefaultAsync(we => we.Id == id && we.UserId == userId, ct);
+
+        if (execution is null)
+        {
+            Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
         Response.Headers["Content-Type"] = "text/event-stream; charset=utf-8";
         Response.Headers["Cache-Control"] = "no-cache, no-store";
         Response.Headers["X-Accel-Buffering"] = "no";
         Response.Headers["Connection"] = "keep-alive";
 
-        await foreach (var json in _eventBus.StreamAsync(id, ct))
+        // Subscribe FIRST (synchronous registration) so any event published between now and the
+        // point we start reading below is queued rather than lost — the snapshot we send next is
+        // only a starting point, not a substitute for still-connected delivery.
+        using var subscription = _eventBus.Subscribe(id);
+
+        // No replay/snapshot previously existed: a client that connects (or reconnects) after
+        // page load could miss every event fired before it subscribed, and had no way to fully
+        // reconcile beyond the terminal-refetch the frontend does as a partial mitigation. Send
+        // the full current state first so every subscriber — first-time or reconnecting — starts
+        // from a consistent baseline regardless of what it missed.
+        var snapshot = new { type = "Snapshot", execution = ToDto(execution) };
+        await Response.WriteAsync(
+            $"data: {JsonSerializer.Serialize(snapshot, ExecutionEventBus.JsonOptions)}\n\n", Encoding.UTF8, ct);
+        await Response.Body.FlushAsync(ct);
+
+        await foreach (var json in subscription.Reader.ReadAllAsync(ct))
         {
             var line = $"data: {json}\n\n";
             await Response.WriteAsync(line, Encoding.UTF8, ct);

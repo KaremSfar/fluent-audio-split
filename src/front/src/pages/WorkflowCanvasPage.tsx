@@ -174,10 +174,19 @@ export default function WorkflowCanvasPage() {
     [activeExecution?.id],
   );
 
+  const onSnapshot = useCallback((execution: WorkflowExecution) => {
+    // Full reconciliation on (re)connect — covers events published before this subscriber
+    // attached (initial load, or a reconnect after a dropped connection) that would otherwise
+    // never reach the canvas.
+    setNodeExecutions(execution.nodeExecutions);
+    setExecStatus(execution.status);
+  }, []);
+
   useExecutionStream({
     executionId: activeExecution?.id,
     onNodeStatus,
     onExecutionStatus,
+    onSnapshot,
     enabled: !!activeExecution && !isTerminal && isAuthenticated,
   });
 
@@ -508,6 +517,14 @@ export default function WorkflowCanvasPage() {
   const currentExecStatus = execStatus ?? activeExecution?.status ?? null;
   const isRunning = currentExecStatus === 'Running' || currentExecStatus === 'Pending';
 
+  // The canvas always renders the LATEST workflow version, but an execution stays pinned to
+  // whichever version was live when it started. Editing + saving after a run bumps the version
+  // (new node ids), so the overlay above is keyed against a version that no longer matches what's
+  // on screen — node labels/models are still correct (resolved server-side from the pinned
+  // version), but new nodes never show a status and removed nodes surface as orphan drawer rows.
+  const versionDrift =
+    !!activeExecution && !isRunning && activeExecution.workflowVersionId !== workflow.versionId;
+
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
       {/* Header */}
@@ -581,6 +598,18 @@ export default function WorkflowCanvasPage() {
           </Button>
         </div>
       </header>
+
+      {/* Version drift notice — the overlay below reflects the version the execution ran
+          against, not the (edited-since) version currently on the canvas. */}
+      {versionDrift && (
+        <div className="shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-800 flex items-center gap-2">
+          <span>⚠</span>
+          <span>
+            Workflow changed since this execution ran — node status/labels below reflect the
+            version it actually ran against, not your current edits.
+          </span>
+        </div>
+      )}
 
       {/* Canvas + Side Panel */}
       <main className="flex-1 flex overflow-hidden" style={{ minHeight: 0 }}>

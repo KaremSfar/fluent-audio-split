@@ -92,6 +92,10 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<NodeExecution>(e =>
         {
             e.HasKey(ne => ne.Id);
+            // Belt-and-suspenders against the app-level idempotency check in
+            // NodeCompletedConsumer/RetryNode: even under concurrent redelivery there can never
+            // be two rows for the same (execution, workflow node, attempt) at the DB layer.
+            e.HasIndex(ne => new { ne.WorkflowExecutionId, ne.WorkflowNodeId, ne.Attempt }).IsUnique();
         });
     }
 

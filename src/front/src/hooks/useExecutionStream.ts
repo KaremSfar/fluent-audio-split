@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import type { NodeStatusEvent, ExecutionStatusEvent } from '../types/execution';
+import type { NodeStatusEvent, ExecutionStatusEvent, WorkflowExecution } from '../types/execution';
 
 function getToken(): string | null {
   return localStorage.getItem('auth_token');
@@ -10,6 +10,11 @@ interface UseExecutionStreamOptions {
   executionId: string | undefined;
   onNodeStatus: (event: NodeStatusEvent) => void;
   onExecutionStatus: (event: ExecutionStatusEvent) => void;
+  // Fired once, right after connecting (or reconnecting), with the full authoritative execution
+  // state. The server has no event backlog — anything published before this subscriber connected
+  // (initial page load, or a reconnect after a network blip) would otherwise be silently missed.
+  // Consumers should treat this as a full reconciliation, not just a delta.
+  onSnapshot?: (execution: WorkflowExecution) => void;
   enabled?: boolean;
 }
 
@@ -17,10 +22,14 @@ export function useExecutionStream({
   executionId,
   onNodeStatus,
   onExecutionStatus,
+  onSnapshot,
   enabled = true,
 }: UseExecutionStreamOptions) {
   const abortRef = useRef<AbortController | null>(null);
-  const baseUrl = (import.meta.env.VITE_SERVICE_URL ?? 'http://localhost:5001') as string;
+  // .env.example ships VITE_SERVICE_URL for every environment (dev: :8080 direct to the API,
+  // docker compose: the :8765 nginx gateway) — this fallback only matters if it's unset, so align
+  // it with the project's own documented dev default instead of the dead :5001 port.
+  const baseUrl = (import.meta.env.VITE_SERVICE_URL ?? 'http://localhost:8080') as string;
 
   useEffect(() => {
     if (!executionId || !enabled) return;
@@ -54,6 +63,8 @@ export function useExecutionStream({
               outputPaths: (data.outputArtifactPaths as Record<string, string>) ?? undefined,
               errorMessage: data.errorMessage as string | undefined,
             });
+          } else if (type === 'Snapshot') {
+            onSnapshot?.(data.execution as WorkflowExecution);
           } else if (
             type === 'ExecutionRunning' || type === 'ExecutionCompleted' ||
             type === 'ExecutionPartiallyFailed' || type === 'ExecutionFailed' ||

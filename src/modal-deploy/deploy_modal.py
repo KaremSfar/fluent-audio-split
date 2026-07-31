@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import shutil
+import time
 import traceback
 import typing
 import uuid
@@ -271,37 +272,6 @@ def get_job_status_function(task_id: str) -> dict:
         return {"task_id": task_id, "status": "error", "error": f"Failed to read status: {e}"}
 
 
-@app.function(image=image, timeout=300, volumes={"/storage": volume})
-def get_file_by_hash_function(task_id: str, file_hash: str) -> tuple[bytes, str]:
-    """Retrieve a separated audio file by its hash identifier."""
-    volume.reload()
-    job_status = modal.Dict.from_name("audio-separator-job-status", create_if_missing=True)
-
-    if task_id not in job_status:
-        raise FileNotFoundError(f"Task not found: {task_id}")
-
-    files_dict = job_status[task_id].get("files", {})
-
-    actual_filename = None
-    if isinstance(files_dict, dict):
-        actual_filename = files_dict.get(file_hash)
-    elif isinstance(files_dict, list):
-        for fname in files_dict:
-            if _file_hash(fname) == file_hash:
-                actual_filename = fname
-                break
-
-    if not actual_filename:
-        raise FileNotFoundError(f"File with hash {file_hash} not found")
-
-    file_path = f"/storage/outputs/{task_id}/{actual_filename}"
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found on disk: {actual_filename}")
-
-    with open(file_path, "rb") as f:
-        return f.read(), actual_filename
-
-
 @app.function(image=image, timeout=60, volumes={"/models": models_volume})
 def list_available_models() -> dict:
     from audio_separator.separator import Separator
@@ -431,12 +401,40 @@ async def get_job_status(task_id: str, _auth: None = Depends(verify_api_key)) ->
     return get_job_status_function.remote(task_id)
 
 
+def _reload_volume_with_retry(volume: modal.Volume, max_attempts: int = 4, initial_backoff: float = 0.5) -> None:
+    """Reload a Modal Volume, retrying with backoff on whole-volume lock contention.
+
+    ``volume.reload()`` locks the entire Volume, not just the task's own directory. When
+    sibling workflow branches are separating concurrently in different containers, one
+    container's reload can race another container's still-open output files on the *same*
+    shared volume, raising an error whose message mentions "open files". That conflicting
+    writer typically closes/commits within a couple of seconds, so a short retry-with-backoff
+    resolves the race instead of failing the request outright.
+    """
+    backoff = initial_backoff
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            volume.reload()
+            return
+        except Exception as e:
+            last_exc = e
+            if attempt == max_attempts or "open files" not in str(e).lower():
+                raise
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 2.0)
+    if last_exc:
+        raise last_exc
+
+
 @web_app.get("/download/{task_id}/{file_hash}")
 async def download_file(task_id: str, file_hash: str, _auth: None = Depends(verify_api_key)) -> Response:
     from starlette.responses import FileResponse
 
     try:
-        volume.reload()
+        # Resolve the filename/path from modal.Dict *before* touching the volume. This is
+        # cheap (no volume I/O) and lets us skip volume.reload() entirely when a warm
+        # container already sees the file locally, avoiding the whole-volume lock below.
         job_status_dict = modal.Dict.from_name("audio-separator-job-status", create_if_missing=True)
 
         if task_id not in job_status_dict:
@@ -457,8 +455,21 @@ async def download_file(task_id: str, file_hash: str, _auth: None = Depends(veri
             raise FileNotFoundError(f"File with hash {file_hash} not found")
 
         file_path = f"/storage/outputs/{task_id}/{actual_filename}"
+
+        # Only reload the volume (whole-volume lock) if the file isn't already visible
+        # locally. Concurrent sibling branches separating in other containers may hold the
+        # volume's output files open for writing, so an unconditional reload here can 500
+        # with "there are open files preventing the operation" even though this container
+        # doesn't need to see those other files at all.
         if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found on disk: {actual_filename}")
+            try:
+                _reload_volume_with_retry(volume)
+            except Exception:
+                # Fall through to the exists() re-check / FileNotFoundError below so
+                # transient reload failures surface as a normal 404 rather than a 500.
+                pass
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"File not found on disk: {actual_filename}")
 
         content_type = filetype.guess_mime(file_path) or "application/octet-stream"
         ascii_name = "".join(c if ord(c) < 128 else "_" for c in actual_filename)

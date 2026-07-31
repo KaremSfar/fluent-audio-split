@@ -37,7 +37,7 @@ export const filesService = {
   // since the endpoint requires a Bearer header (so `<audio src>` can't be used directly).
   getObjectUrl: async (relativePath: string): Promise<string> => {
     const token = localStorage.getItem('auth_token');
-    const base = import.meta.env.VITE_SERVICE_URL ?? 'http://localhost:5001';
+    const base = import.meta.env.VITE_SERVICE_URL ?? 'http://localhost:8080';
     const url = `${base}/api/files/download?path=${encodeURIComponent(relativePath)}`;
 
     const response = await fetch(url, {
