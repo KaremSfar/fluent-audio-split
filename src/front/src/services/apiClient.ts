@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: `${import.meta.env.VITE_SERVICE_URL ?? 'http://localhost:5001'}/api`,
+  baseURL: `${import.meta.env.VITE_SERVICE_URL ?? 'http://localhost:8080'}/api`,
 });
 
 apiClient.interceptors.request.use((config) => {

@@ -19,7 +19,8 @@ src/
 │   ├── AudioSeparationNode.tsx   React Flow node card (+ execution overlay: status border, footer, play/retry)
 │   ├── NodeSidePanel.tsx         per-node config drawer (hosts the model browser)
 │   ├── workflow/                 ModelBrowser, EnsembleConfig, EnsemblePresetsModal, ParamRow, Tooltip
-│   ├── execution/                ExecutionDrawer, NodeExecutionCard, StatusBadge
+│   ├── execution/                ExecutionDrawer, NodeExecutionCard, StatusBadge,
+│   │                             StemsPlayerGroup + StemWaveformPlayer + stemSyncEngine (synced stem player)
 │   ├── files/                    FileTable, FileUploadZone
 │   ├── layout/                   AppHeader
 │   └── ui/                       shadcn primitives (button, card, table, …)
@@ -86,6 +87,17 @@ root-only seed. `useNowTick` re-renders running rows once a second so elapsed ti
 > Background and the remaining execution-UX gaps (branched `PartiallyFailed`, version drift, late-subscriber
 > resync) are in the root README → Robustness and `../../TODO.md`; design notes in the Serena memory
 > `frontend/execution_overlay`.
+
+## Synced stem player
+
+Each completed node's output stems render a DAW-style player (`execution/StemsPlayerGroup`): one master
+Play per node, per-stem Mute/Solo, and click-to-seek. Stems across **different nodes** stay in sync
+because playback is driven by a single shared Web Audio clock — `execution/stemSyncEngine.ts` owns one
+`AudioContext` and plays every stem as an `AudioBufferSourceNode` off one virtual transport, so sources
+join in exact phase (sample-accurate, no drift/echo). `StemWaveformPlayer` is a muted, passive waveform
+whose cursor the engine drives. `ExecutionPage` / `ExecutionDrawer` each create one engine and pass it to
+every node. Design notes and gotchas (autoplay-gesture `ensureContext`, path-as-id, decode-into-RAM
+tradeoff) are in the Serena memory `frontend/stem_player`.
 
 ## Commands
 

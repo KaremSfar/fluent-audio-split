@@ -10,6 +10,10 @@ export interface WorkflowNode {
 export interface Workflow {
   id: string;
   name: string;
+  // Id of the latest WorkflowVersion — compare against WorkflowExecution.workflowVersionId to
+  // detect when the canvas has drifted from the version an execution actually ran against
+  // (e.g. the workflow was edited+saved after the run started/finished).
+  versionId: string;
   nodes: WorkflowNode[];
   createdAt: string;
   updatedAt: string;

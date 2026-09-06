@@ -163,7 +163,8 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("WorkflowExecutionId");
+                    b.HasIndex("WorkflowExecutionId", "WorkflowNodeId", "Attempt")
+                        .IsUnique();
 
                     b.ToTable("NodeExecutions");
                 });

@@ -103,6 +103,23 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
 
         foreach (var downstream in downstreamNodes)
         {
+            // Idempotency: MassTransit has no inbox/outbox configured, so redelivery of this
+            // NodeCompletedEvent (at-least-once delivery) would otherwise re-run this whole loop
+            // and spawn a second downstream NodeExecution — and a second (GPU-expensive)
+            // ProcessNodeCommand — for the same workflow node. A live (non-Failed) row already
+            // existing for this (execution, workflow node) means it was already chained; skip it.
+            // `workflowExec.NodeExecutions` reflects entries added earlier in this same loop too,
+            // via EF's relationship fixup on `db.NodeExecutions.Add`.
+            var alreadyChained = workflowExec.NodeExecutions.Any(ne =>
+                ne.WorkflowNodeId == downstream.Id && ne.Status != NodeExecutionStatus.Failed);
+            if (alreadyChained)
+            {
+                _logger.LogInformation(
+                    "Skipping duplicate downstream NodeExecution for workflow node {NodeId} (execution {ExecId}); already chained",
+                    downstream.Id, msg.WorkflowExecutionId);
+                continue;
+            }
+
             var inputPath = downstream.SourceOutputName != null
                 && msg.OutputArtifactPaths.TryGetValue(downstream.SourceOutputName, out var resolvedPath)
                 ? resolvedPath
