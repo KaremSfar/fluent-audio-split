@@ -114,6 +114,8 @@ export const STEM_COLORS: Record<string, string> = {
   Female: 'bg-pink-400',
   Crowd: 'bg-purple-300',
   Aspiration: 'bg-sky-300',
+  Center: 'bg-fuchsia-400',
+  Wide: 'bg-cyan-300',
   'No Dry': 'bg-slate-300',
   'No Crowd': 'bg-violet-300',
   'No Woodwinds': 'bg-green-400',

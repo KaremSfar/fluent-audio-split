@@ -74,6 +74,11 @@ image = (
         "LD_LIBRARY_PATH": "/usr/local/cuda/lib64:$LD_LIBRARY_PATH",
         "PATH": "/usr/local/cuda/bin:$PATH",
     })
+    # Shared with the worker so both register the same community models.
+    .add_local_file(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "audio-separation-worker", "app", "extra_models.py"),
+        "/root/extra_models.py",
+    )
 )
 
 volume = modal.Volume.from_name("audio-separator-storage", create_if_missing=True)
@@ -147,6 +152,8 @@ def separate_audio_function(
 ) -> dict:
     """Separate audio into stems using one or more models."""
     from audio_separator.separator import Separator
+    import extra_models
+    extra_models.install()
 
     if task_id is None:
         task_id = str(uuid.uuid4())
@@ -275,6 +282,8 @@ def get_job_status_function(task_id: str) -> dict:
 @app.function(image=image, timeout=60, volumes={"/models": models_volume})
 def list_available_models() -> dict:
     from audio_separator.separator import Separator
+    import extra_models
+    extra_models.install()
     os.makedirs("/models", exist_ok=True)
     separator = Separator(info_only=True, model_file_dir="/models")
     return separator.list_supported_model_files()
@@ -283,6 +292,8 @@ def list_available_models() -> dict:
 @app.function(image=image, timeout=60, volumes={"/models": models_volume})
 def get_simplified_models(filter_sort_by: str = None) -> dict:
     from audio_separator.separator import Separator
+    import extra_models
+    extra_models.install()
     os.makedirs("/models", exist_ok=True)
     separator = Separator(info_only=True, model_file_dir="/models")
     return separator.get_simplified_model_list(filter_sort_by=filter_sort_by)

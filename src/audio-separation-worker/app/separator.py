@@ -133,6 +133,9 @@ class LocalAudioSeparator(AudioSeparator):
     ) -> list[str]:
         from audio_separator.separator import Separator
 
+        from app import extra_models as community_models
+        community_models.install()
+
         ap = advanced_params or {}
         ap.setdefault("output_format", _DEFAULT_OUTPUT_FORMAT)
         models = [model_name] + (extra_models or [])

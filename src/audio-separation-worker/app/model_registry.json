@@ -2394,5 +2394,41 @@
       "Vocals",
       "Other"
     ]
+  },
+  "gilliaan_melroformer_centerwide_v3.ckpt": {
+    "arch": "mdxc",
+    "category": "specialty",
+    "label": "gilliaan CenterWide v3 (Mel-Band) - Phantom Center / Wide",
+    "real_stems": [
+      "center",
+      "wide"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Center": "center",
+      "Wide": "wide"
+    },
+    "stems": [
+      "Center",
+      "Wide"
+    ]
+  },
+  "gilliaan_bsroformer_centerwide_v3beta.ckpt": {
+    "arch": "mdxc",
+    "category": "specialty",
+    "label": "gilliaan CenterWide v3 beta (BS-Roformer, light) - Phantom Center / Wide",
+    "real_stems": [
+      "center",
+      "wide"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Center": "center",
+      "Wide": "wide"
+    },
+    "stems": [
+      "Center",
+      "Wide"
+    ]
   }
 }
