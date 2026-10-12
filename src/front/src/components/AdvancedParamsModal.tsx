@@ -28,7 +28,7 @@ export function AdvancedParamsModal({
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="bg-background border border-border rounded-xl shadow-2xl w-[440px] max-h-[78vh] flex flex-col"
+        className="bg-card text-card-foreground border border-border rounded-xl shadow-2xl w-[440px] max-h-[78vh] flex flex-col"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -79,7 +79,7 @@ export function AdvancedParamsModal({
         <div className="px-4 py-2.5 border-t border-border shrink-0 flex justify-end">
           <button
             onClick={onClose}
-            className="flex h-7 items-center rounded-md bg-violet-500 px-3 text-xs font-medium text-white hover:bg-violet-600 focus:outline-none"
+            className="flex h-7 items-center rounded-md bg-violet-600 px-3 text-xs font-medium text-white hover:bg-violet-700 focus:outline-none"
           >
             Done
           </button>

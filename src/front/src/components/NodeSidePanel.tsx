@@ -136,9 +136,9 @@ export function NodeSidePanel({ nodeId, nodeIndex, configJson, outputs, onToggle
 
   return (
     <>
-      <aside className="w-96 shrink-0 border-l bg-background flex flex-col overflow-hidden h-full">
+      <aside className="w-96 shrink-0 border-l bg-card flex flex-col overflow-hidden h-full">
         {/* Panel header */}
-        <div className="bg-violet-500 text-white px-4 py-3 flex items-center gap-2 shrink-0">
+        <div className="bg-violet-600 text-white px-4 py-3 flex items-center gap-2 shrink-0">
           <span className="text-base">🎛️</span>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium opacity-80 uppercase tracking-wide">Configuring</p>
@@ -146,7 +146,7 @@ export function NodeSidePanel({ nodeId, nodeIndex, configJson, outputs, onToggle
           </div>
           <button
             onClick={onClose}
-            className="text-violet-200 hover:text-white text-sm shrink-0"
+            className="text-violet-100 hover:text-white text-sm shrink-0"
             title="Close panel"
           >
             ✕

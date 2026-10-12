@@ -94,12 +94,12 @@ export const TrimWaveform = forwardRef<TrimWaveformHandle, TrimWaveformProps>(
     };
 
     return (
-      <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 space-y-2">
+      <div className="rounded-lg border border-violet-200 dark:border-violet-800/60 bg-violet-50/50 dark:bg-violet-950/30 p-3 space-y-2">
         <div ref={containerRef} />
         <button
           type="button"
           onClick={handlePlayPause}
-          className="inline-flex items-center gap-1.5 rounded-md bg-violet-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-600"
+          className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
         >
           {isPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
           {isPlaying ? 'Pause' : 'Play selection'}

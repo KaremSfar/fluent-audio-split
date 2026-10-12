@@ -186,7 +186,7 @@ export default function ExecutionPage() {
             {execution.completedAt && ` · Completed: ${formatTime(execution.completedAt)}`}
           </p>
           {execution.errorMessage && (
-            <p className="text-red-600 text-sm">{execution.errorMessage}</p>
+            <p className="text-red-600 dark:text-red-400 text-sm">{execution.errorMessage}</p>
           )}
         </div>
 

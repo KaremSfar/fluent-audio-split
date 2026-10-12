@@ -51,6 +51,15 @@ src/
 | `/executions/:id` | ExecutionPage | Live progress + stem results |
 | `/executions/:id/results` | ResultsPage | Results DAW: shared transport + bar-snapped loop, per-stem fader/mute/solo, master, metronome that can follow the song's beat map (`components/daw/`) |
 
+## Theming (light / dark / system)
+- `src/theme/`: `ThemeProvider` (wraps the app in `App.tsx`), `useTheme()` → `{ preference, theme, setPreference }`, `theme.ts` (storage key `localStorage['fas:theme']`, `system` = key absent, `resolveTheme`, `applyTheme`). The `dark` class and `color-scheme` live on `<html>`; tailwind `darkMode: ["class"]`.
+- **No flash**: an inline script in `index.html` applies the saved/system theme before first paint. Keep it in sync with `theme.ts` if the key or logic changes.
+- Toggle: `components/layout/ThemeToggle.tsx` (sun/moon button → Light / Dark / System menu, arrow keys + Esc). It is in `AppHeader`, the canvas header and on the login/register pages.
+- **Colours come from tokens** in `src/index.css` (`:root` light, `.dark` dark): shadcn tokens (`background`, `card`, `popover`, `muted-foreground`, `border`, …) plus `link` (text links, ≥ 4.5:1 in both themes) and the DAW set `daw-surface | lane | control | control-hover | border | playhead | bar | beat | meter`. Don't use `bg-white`, `bg-zinc-*`, `text-gray-*` etc. for surfaces/text. Tinted status colours are fine when paired: e.g. `bg-red-50 dark:bg-red-950/40`, `text-red-600 dark:text-red-400`, `border-amber-300 dark:border-amber-700/70`. Solid fills carrying white text use ≥ 600 shades (`bg-violet-600`, `bg-teal-700`, `bg-red-600`) for contrast; stem-colour chips (`STEM_COLORS`, -300/-400) carry dark text (`text-zinc-950`).
+- Canvas-drawn colours can't read CSS variables: wavesurfer colours come from `useTheme()` and are restyled with `setOptions` (no re-decode); `stemColor(output, nodeType, theme)` returns a deep shade for the light studio and the bright `STEM_COLORS` shade for dark; the unplayed waveform is an **opaque** mix (`mixHex` over `LANE_HEX`), because wavesurfer composites the played part with the unplayed alpha. `LANE_HEX` must match `--daw-lane`.
+- React Flow: `colorMode={theme}` plus `--xy-*` overrides on `.react-flow` in `index.css` (canvas, dots, minimap, controls). Node cards use `bg-card`; handle fills use `hsl(var(--card))`.
+- Storybook has a Theme toolbar (`.storybook/preview.ts`) that toggles the same `dark` class.
+
 ## Key Implementation Details
 
 ### WorkflowCanvasPage (DAG Editor)
@@ -60,6 +69,7 @@ src/
 - `sourceNodeId` pointing to another new node is sent as `null` (can't resolve FK for unsaved parent — user must save top-down)
 - After save: `onSuccess` replaces `localNodes` with server response (real IDs replace temp IDs)
 - Node layout: `buildLevels()` groups nodes by tree depth → rendered as horizontal rows
+- Viewport: `FitViewOnChange` (child of `<ReactFlow>`) fits all nodes (`maxZoom: 1`) once every node is measured (`useNodesInitialized`) and again whenever the node count grows. Don't rely on the `fitView` prop: the graph is seeded in an effect after mount, so it fit too early (zoomed in, nodes clipped).
 - Cascade delete: `getDescendantIds()` recursively collects all child IDs
 
 ### models.ts (src/lib/models.ts)
@@ -88,6 +98,7 @@ NodeExecutionDto { outputArtifactPaths: Record<string, string> }
 - `sourceNodeId` in new nodes should reference an already-persisted parent; if not, set to `null` and save in two steps
 
 ## Results DAW (`pages/ResultsPage.tsx`, `components/daw/`)
+- **Studio UI** (one codepath for both themes, tokens only): `TransportBar` (row 1: transport · clock/bar-beat · loop · `master` slot; row 2: `MetronomeControls` — click/tempo row, then grid alignment · click vol · practice · Advanced toggle). Shared control classes are in `daw/ui.ts` (`ctl`, `neutral`, `toggle`, `segItem`, `field`, …; 32 px controls, 28 px in secondary rows). Faders use the `.daw-range` CSS (track filled to `--fill`, 0 dB detent mark). The page is full height: the mixer `section` is `flex-1`, the header column continues below the last track to the footer, and `LanesOverlay` draws one playhead, the loop band and anchor guides across all lanes on md+ (wavesurfer cursors are hidden there via `cursor={false}`).
 - One `StemSyncEngine` per page; track ids are `ResultTrack.id`. Chain per stem: source -> gate (mute/solo) -> fader -> analyser -> master -> destination. `setMuted` is the audible gate; `setVolume` is the fader.
 - Solo logic lives in `useMixerState` (additive; Alt = exclusive). Mixer state is persisted in `localStorage['fas:mixer:v2:<executionId>']`. Untrusted storage goes through `parseMetronome`/`sanitizeMap`/`sanitizeAnchors`; reducer patches through `sanitizeMetronome` (keeps `map`/`anchors` identity so the grid is only rebuilt when they change).
 - **Click = metronome + beat grid.** `beatGrid.ts` defines `BeatGrid` (`beatTime(k)`, `beatIndexAt(pos)`, `beatInBar(k)`, `barIndex(k)`): `FixedGrid` (bpm + offsetSec) or `MapGrid` (explicit beat times; extrapolates past either end with the median of the nearest 4 intervals). `buildGrid(settings)` picks the map in `mode: 'follow'`, else the fixed grid. Bars come from "downbeat refs": the map's `downbeatIndex`, overridden by user beat-1 anchors (each further one re-phases bars from that beat on; bar numbers stay continuous).

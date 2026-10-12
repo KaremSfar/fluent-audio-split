@@ -43,7 +43,7 @@ export function NodeExecutionCard({
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-base">
             {node.nodeLabel ?? (workflowNode ? `Node ${workflowNode.order + 1}` : isMerge ? 'Merge' : 'Audio Separation')}
-            {isMerge && <span className="ml-2 text-sm font-normal text-teal-700">(Merge)</span>}
+            {isMerge && <span className="ml-2 text-sm font-normal text-teal-700 dark:text-teal-300">(Merge)</span>}
             {!isMerge && (() => {
               // Prefer the model name resolved server-side from the executed version; fall back
               // to the latest workflow node's config only when the server didn't provide one.
@@ -79,7 +79,7 @@ export function NodeExecutionCard({
         </div>
 
         {node.errorMessage && (
-          <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+          <div className="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 p-3 text-sm text-red-700 dark:text-red-300">
             {node.errorMessage}
           </div>
         )}

@@ -59,7 +59,7 @@ export function BeatFlash({ engine, grid, active, suppressAt }: BeatFlashProps) 
       ref={ref}
       aria-hidden="true"
       data-one="false"
-      className="pointer-events-none fixed inset-0 z-50 opacity-0 shadow-[inset_0_0_0_6px_rgba(244,244,245,0.7)] data-[one=true]:shadow-[inset_0_0_0_10px_rgba(167,139,250,0.95)]"
+      className="pointer-events-none fixed inset-0 z-50 opacity-0 shadow-[inset_0_0_0_6px_rgba(113,113,122,0.55)] data-[one=true]:shadow-[inset_0_0_0_10px_rgba(124,58,237,0.85)] dark:shadow-[inset_0_0_0_6px_rgba(244,244,245,0.7)] dark:data-[one=true]:shadow-[inset_0_0_0_10px_rgba(167,139,250,0.95)]"
     />
   );
 }

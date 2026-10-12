@@ -43,8 +43,8 @@ export function MergeSidePanel({
   };
 
   return (
-    <aside className="w-96 shrink-0 border-l bg-background flex flex-col overflow-hidden h-full">
-      <div className="bg-teal-600 text-white px-4 py-3 flex items-center gap-2 shrink-0">
+    <aside className="w-96 shrink-0 border-l bg-card flex flex-col overflow-hidden h-full">
+      <div className="bg-teal-700 text-white px-4 py-3 flex items-center gap-2 shrink-0">
         <span className="text-base" aria-hidden="true">⧉</span>
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium opacity-80 uppercase tracking-wide">Configuring</p>
@@ -89,7 +89,7 @@ export function MergeSidePanel({
                   type="button"
                   aria-label={`Remove input ${label}`}
                   title="Remove input"
-                  className="text-xs text-muted-foreground hover:text-red-500 px-1"
+                  className="text-xs text-muted-foreground hover:text-red-500 dark:hover:text-red-400 px-1"
                   onClick={() => onRemoveInput(nodeId, i)}
                 >
                   ✕

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import WaveSurfer from 'wavesurfer.js';
+import WaveSurfer, { type WaveSurferOptions } from 'wavesurfer.js';
+import { useTheme } from '@/theme/useTheme';
+import type { ResolvedTheme } from '@/theme/theme';
+import { LANE_HEX, mixHex } from '@/components/daw/stemColor';
 import type { StemSyncEngine } from './stemSyncEngine';
 
 interface StemWaveformPlayerProps {
@@ -11,12 +14,32 @@ interface StemWaveformPlayerProps {
   engine: StemSyncEngine;
   /** Render a shorter waveform, suited to the compact in-canvas drawer. */
   compact?: boolean;
-  /** `dark` is the Results-page studio lane style (zinc waveform, `color` as the progress fill). */
-  variant?: 'default' | 'dark';
-  /** Progress/cursor colour for the dark variant (any CSS colour). */
+  /**
+   * `studio` is the Results-page lane style: the waveform is drawn in `color` (dimmed ahead of the
+   * playhead, full behind it) and follows the light/dark theme.
+   */
+  variant?: 'default' | 'studio';
+  /** Stem colour for the studio variant (`#rrggbb`; pick the shade for the current theme). */
   color?: string;
-  /** Dark variant only: called by the "Retry" button after a load/decode failure. */
+  /** Studio variant: draw wavesurfer's own cursor (off when the page draws one shared playhead). */
+  cursor?: boolean;
+  /** Studio variant only: called by the "Retry" button after a load/decode failure. */
   onRetry?: () => void;
+}
+
+/** Theme-dependent wavesurfer colours (canvas drawing can't read CSS variables). */
+function waveColors(studio: boolean, color: string, theme: ResolvedTheme, cursor: boolean): Partial<WaveSurferOptions> {
+  if (!studio) {
+    return theme === 'dark'
+      ? { waveColor: '#6d5bb0', progressColor: '#a78bfa', cursorColor: '#c4b5fd' }
+      : { waveColor: '#c4b5fd', progressColor: '#8b5cf6', cursorColor: '#7c3aed' };
+  }
+  return {
+    waveColor: mixHex(color, LANE_HEX[theme], theme === 'dark' ? 0.38 : 0.4),
+    progressColor: color,
+    cursorColor: theme === 'dark' ? '#fafafa' : '#18181b',
+    cursorWidth: cursor ? 1 : 0,
+  };
 }
 
 /**
@@ -37,9 +60,18 @@ export function StemWaveformPlayer({
   compact = false,
   variant = 'default',
   color = '#8b5cf6',
+  cursor = true,
   onRetry,
 }: StemWaveformPlayerProps) {
-  const dark = variant === 'dark';
+  const studio = variant === 'studio';
+  const { theme } = useTheme();
+  const colors = waveColors(studio, color, theme, cursor);
+  const { waveColor, progressColor, cursorColor, cursorWidth } = colors;
+  // Read when the waveform is created; later changes go through setOptions (no re-decode).
+  const colorsRef = useRef(colors);
+  useEffect(() => {
+    colorsRef.current = { waveColor, progressColor, cursorColor, cursorWidth };
+  }, [waveColor, progressColor, cursorColor, cursorWidth]);
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const [error, setError] = useState(false);
@@ -56,11 +88,9 @@ export function StemWaveformPlayer({
         if (wavesurferRef.current || !containerRef.current) return;
         const wavesurfer = WaveSurfer.create({
           container: containerRef.current,
-          waveColor: dark ? '#71717a' : '#c4b5fd',
-          progressColor: dark ? color : '#8b5cf6',
-          cursorColor: dark ? '#fafafa' : '#7c3aed',
-          height: dark ? 72 : compact ? 40 : 64,
-          ...(dark ? { barWidth: 2, barGap: 1, barRadius: 1, normalize: true } : {}),
+          ...colorsRef.current,
+          height: studio ? 72 : compact ? 40 : 64,
+          ...(studio ? { barWidth: 2, barGap: 1, barRadius: 1, normalize: true } : {}),
           url: blobUrl,
         });
         wavesurferRef.current = wavesurfer;
@@ -84,17 +114,22 @@ export function StemWaveformPlayer({
       wavesurferRef.current = null;
       setReady(false);
     };
-  }, [engine, id, path, compact, dark, color]);
+  }, [engine, id, path, compact, studio]);
 
-  if (dark) {
+  // Theme / colour changes restyle the existing instance.
+  useEffect(() => {
+    wavesurferRef.current?.setOptions({ waveColor, progressColor, cursorColor, ...(cursorWidth != null ? { cursorWidth } : {}) });
+  }, [waveColor, progressColor, cursorColor, cursorWidth, ready]);
+
+  if (studio) {
     return (
       <div className="relative flex-1 min-w-0" style={{ minHeight: 72 }}>
         <div ref={containerRef} className="w-full" />
         {!ready && !error && (
-          <div className="absolute inset-0 animate-pulse rounded bg-zinc-800/70" aria-hidden="true" />
+          <div className="absolute inset-0 animate-pulse rounded bg-daw-control motion-reduce:animate-none" aria-hidden="true" />
         )}
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-red-300">
+          <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-red-700 dark:text-red-300">
             <span>Couldn't load this stem.</span>
             {onRetry && (
               <button
@@ -103,7 +138,7 @@ export function StemWaveformPlayer({
                   setError(false);
                   onRetry();
                 }}
-                className="rounded border border-red-300/60 px-2 py-0.5 text-xs hover:bg-red-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+                className="rounded border border-red-300 px-2 py-0.5 text-xs hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-red-300/60 dark:hover:bg-red-950"
               >
                 Retry
               </button>
@@ -117,7 +152,7 @@ export function StemWaveformPlayer({
   return (
     <div className="flex-1">
       <div ref={containerRef} className="flex-1" />
-      {error && <p className="text-xs text-red-600">Couldn't load this stem.</p>}
+      {error && <p className="text-xs text-red-600 dark:text-red-400">Couldn't load this stem.</p>}
     </div>
   );
 }

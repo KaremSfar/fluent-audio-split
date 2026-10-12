@@ -13,7 +13,7 @@ interface EnsemblePresetsModalProps {
 export function EnsemblePresetsModal({ onApply, onClose }: EnsemblePresetsModalProps) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-lg mx-4 rounded-xl border bg-background shadow-xl flex flex-col max-h-[85vh]">
+      <div className="w-full max-w-lg mx-4 rounded-xl border bg-card text-card-foreground shadow-xl flex flex-col max-h-[85vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
           <div>
@@ -53,7 +53,7 @@ export function EnsemblePresetsModal({ onApply, onClose }: EnsemblePresetsModalP
                         key={m}
                         className={`text-[10px] px-2 py-0.5 rounded-full border ${
                           i === 0
-                            ? 'bg-violet-100 border-violet-300 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
+                            ? 'bg-violet-100 border-violet-300 dark:border-violet-700/70 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
                             : 'bg-muted border-muted-foreground/20 text-muted-foreground'
                         }`}
                       >

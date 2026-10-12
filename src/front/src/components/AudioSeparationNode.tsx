@@ -34,7 +34,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
   const baseBorder = execStatus
     ? execBorderClass[execStatus] ?? 'border-violet-400'
     : selected
-      ? 'border-violet-600 ring-2 ring-violet-300'
+      ? 'border-violet-600 ring-2 ring-violet-300 dark:border-violet-400 dark:ring-violet-500/50'
       : 'border-violet-400';
 
   // ── Play button logic ──
@@ -44,7 +44,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`w-64 rounded-xl border-2 ${baseBorder} bg-background shadow-lg transition-all ${execStatus === 'Running' ? 'animate-pulse-subtle' : ''}`}
+      className={`w-64 rounded-xl border-2 ${baseBorder} bg-card text-card-foreground shadow-lg dark:shadow-black/40 transition-all ${execStatus === 'Running' ? 'animate-pulse-subtle' : ''}`}
       style={{ position: 'relative' }}
     >
       {/* Input handle */}
@@ -56,7 +56,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
           background: '#8b5cf6',
           width: 12,
           height: 12,
-          border: '2px solid white',
+          border: '2px solid hsl(var(--card))',
           left: -6,
           top: '50%',
           transform: 'translateY(-50%)',
@@ -64,10 +64,10 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
       />
 
       {/* Header */}
-      <div className="bg-violet-500 text-white rounded-t-xl px-3 py-2 flex items-center gap-2">
+      <div className="bg-violet-600 text-white rounded-t-[10px] px-3 py-2 flex items-center gap-2">
         <span className="text-base">🎛️</span>
         <span className="font-semibold text-xs flex-1 truncate">Split · Node {nodeIndex + 1}</span>
-        <span className="text-[9px] font-mono uppercase bg-violet-400/60 rounded px-1.5 py-0.5">{arch}</span>
+        <span className="text-[9px] font-mono uppercase bg-white/20 rounded px-1.5 py-0.5">{arch}</span>
         {/* Play button in header */}
         {showPlay && (
           <button
@@ -80,7 +80,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
         )}
         <button
           onClick={(e) => { e.stopPropagation(); onRemove(nodeId as string); }}
-          className="ml-1 text-violet-200 hover:text-white text-xs shrink-0"
+          className="ml-1 text-violet-100 hover:text-white text-xs shrink-0"
           title="Remove node"
         >
           ✕
@@ -92,7 +92,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
         <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Model</p>
         <p className="text-xs text-foreground truncate leading-snug">{modelDef?.label ?? modelName}</p>
         {ensembleEnabled && ensembleModels.length > 0 && (
-          <p className="text-[9px] text-violet-500 mt-0.5 font-medium">
+          <p className="text-[9px] text-violet-600 dark:text-violet-400 mt-0.5 font-medium">
             + {ensembleModels.length} ensemble model{ensembleModels.length !== 1 ? 's' : ''}
           </p>
         )}
@@ -119,7 +119,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
               style={{ position: 'relative' }}
               title={connected ? `${stem} — connected` : `${stem} — drag to connect`}
             >
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full text-white ${color}`}>{stem}</span>
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full text-zinc-950 ${color}`}>{stem}</span>
               <span className="ml-auto">
                 <KeepToggle output={stem} state={keepState} onToggle={() => onToggleKeep(nodeId, stem)} />
               </span>
@@ -135,7 +135,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
                   right: -6,
                   top: '50%',
                   transform: 'translateY(-50%)',
-                  background: connected ? dotColor : 'white',
+                  background: connected ? dotColor : 'hsl(var(--card))',
                   border: `2px solid ${dotColor}`,
                   boxShadow: keepState === 'kept' ? `0 0 0 3px ${KEEP_COLOR}` : undefined,
                   width: 12,
@@ -148,8 +148,8 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
       </div>
 
       {issues && issues.length > 0 && (
-        <div className="border-t border-amber-300 px-3 py-1" title={issues.join('\n')}>
-          <p className="text-[10px] text-amber-700 truncate">⚠ {issues[0]}</p>
+        <div className="border-t border-amber-300 dark:border-amber-700/70 px-3 py-1" title={issues.join('\n')}>
+          <p className="text-[10px] text-amber-700 dark:text-amber-300 truncate">⚠ {issues[0]}</p>
         </div>
       )}
 

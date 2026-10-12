@@ -79,12 +79,12 @@ export default function DummyPage() {
               {isPending ? 'Sending…' : 'Send Hello World'}
             </Button>
             {taskId && (
-              <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">
+              <div className="rounded-md bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800/60 p-3 text-sm text-green-800 dark:text-green-200">
                 ✅ Task published! ID: <span className="font-mono">{taskId}</span>
               </div>
             )}
             {error && (
-              <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-800">
+              <div className="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 p-3 text-sm text-red-800 dark:text-red-200">
                 ❌ {error}
               </div>
             )}

@@ -7,6 +7,9 @@ import {
   Controls,
   MiniMap,
   applyNodeChanges,
+  useNodesInitialized,
+  useReactFlow,
+  useStore,
   applyEdgeChanges,
   type Node,
   type Edge,
@@ -18,6 +21,8 @@ import {
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import { useAuth } from '@/auth/useAuth';
+import { useTheme } from '@/theme/useTheme';
+import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { workflowsService } from '@/services/workflowsService';
 import { executionsService } from '@/services/executionsService';
 import { Button } from '@/components/ui/button';
@@ -70,6 +75,36 @@ import type {
 // ── React Flow node types registry ────────────────────────────────────────────
 const nodeTypes = { audioSeparation: AudioSeparationNode, merge: MergeNode };
 const rfTypeFor = (t: NodeType) => (t === 'Merge' ? 'merge' : 'audioSeparation');
+
+// ── Viewport: fit every node once they are measured, and again when nodes are added ────────────
+const FIT_OPTIONS = { padding: 0.15, maxZoom: 1, minZoom: 0.2 } as const;
+
+/**
+ * The `fitView` prop alone fits too early here: React Flow mounts with no nodes (the graph is
+ * seeded in an effect), so the first fit ran on unmeasured nodes and opened zoomed-in with cards
+ * clipped. This waits for every node to be measured, then fits (capped at 100 %), and refits
+ * whenever the node count grows (add node / server reload), not on deletes or drags.
+ */
+function FitViewOnChange() {
+  const { fitView } = useReactFlow();
+  const initialized = useNodesInitialized();
+  // Read the count from the React Flow store (not page state): the store gets new nodes a commit
+  // later, and only then does `initialized` drop until they are measured.
+  const nodeCount = useStore((st) => st.nodes.length);
+  const fittedCount = useRef(0);
+  useEffect(() => {
+    if (!initialized || nodeCount === 0) return;
+    const first = fittedCount.current === 0;
+    if (nodeCount > fittedCount.current) {
+      // One frame later so freshly measured dimensions are in the store.
+      const raf = requestAnimationFrame(() => void fitView({ ...FIT_OPTIONS, duration: first ? 0 : 250 }));
+      fittedCount.current = nodeCount;
+      return () => cancelAnimationFrame(raf);
+    }
+    fittedCount.current = nodeCount;
+  }, [initialized, nodeCount, fitView]);
+  return null;
+}
 
 // ── Dagre layout (left → right) ───────────────────────────────────────────────
 const NODE_WIDTH = 288; // w-72
@@ -159,6 +194,7 @@ function nodeTypeMap(rfNodes: Node[]): Map<string, NodeKind> {
 export default function WorkflowCanvasPage() {
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { theme } = useTheme();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -688,7 +724,7 @@ export default function WorkflowCanvasPage() {
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="border-b shrink-0">
+      <header className="border-b bg-background shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-4">
           <button
             onClick={() => navigate('/dashboard')}
@@ -700,11 +736,11 @@ export default function WorkflowCanvasPage() {
           <span className="text-muted-foreground">/</span>
           <span className="font-medium truncate flex-1">{workflow.name}</span>
           {!saved && (
-            <span className="text-xs text-amber-600 font-medium shrink-0">● Unsaved</span>
+            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium shrink-0">● Unsaved</span>
           )}
           {/* Keep summary + validation */}
           <span
-            className="text-xs font-medium text-amber-700 shrink-0 hidden md:inline"
+            className="text-xs font-medium text-amber-700 dark:text-amber-300 shrink-0 hidden md:inline"
             title={keeps.items.length ? keeps.items.map((i) => `${i.nodeLabel} · ${i.output}`).join('\n') : 'Nothing kept yet'}
           >
             📌 {keeps.mode === 'explicit' ? `${keeps.items.length} kept` : `auto: ${keeps.items.length} terminal`}
@@ -712,7 +748,7 @@ export default function WorkflowCanvasPage() {
           <ValidationPill issues={issues} onSelectNode={setSelectedNodeId} />
           {/* Running indicator */}
           {isRunning && (
-            <span className="text-xs text-blue-600 font-medium shrink-0 animate-pulse">● Running</span>
+            <span className="text-xs text-blue-600 dark:text-blue-400 font-medium shrink-0 animate-pulse">● Running</span>
           )}
           <div className="flex items-center gap-2 shrink-0">
             <AddNodeMenu
@@ -768,13 +804,14 @@ export default function WorkflowCanvasPage() {
           <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')}>
             ← Back
           </Button>
+          <ThemeToggle className="shrink-0" />
         </div>
       </header>
 
       {/* Version drift notice — the overlay below reflects the version the execution ran
           against, not the (edited-since) version currently on the canvas. */}
       {versionDrift && (
-        <div className="shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-800 flex items-center gap-2">
+        <div className="shrink-0 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/60 px-4 py-1.5 text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
           <span>⚠</span>
           <span>
             Workflow changed since this execution ran — node status/labels below reflect the
@@ -807,16 +844,20 @@ export default function WorkflowCanvasPage() {
               isValidConnection={isValidConnection}
               onNodeClick={(_evt, node) => setSelectedNodeId(node.id)}
               onPaneClick={() => setSelectedNodeId(null)}
-              fitView
-              fitViewOptions={{ padding: 0.2 }}
+              colorMode={theme}
+              minZoom={FIT_OPTIONS.minZoom}
               defaultEdgeOptions={{ style: { stroke: '#8b5cf6', strokeWidth: 2 } }}
               proOptions={{ hideAttribution: true }}
             >
-              <Background color="#d1d5db" gap={28} size={1} />
-              <Controls />
+              <FitViewOnChange />
+              <Background gap={28} size={1} />
+              <Controls fitViewOptions={FIT_OPTIONS} />
               <MiniMap
-                nodeColor={(n) => ((n.data as { nodeType?: string }).nodeType === 'Merge' ? '#0d9488' : '#8b5cf6')}
-                maskColor="rgba(0,0,0,0.05)"
+                nodeColor={(n) => ((n.data as { nodeType?: string }).nodeType === 'Merge' ? '#0f766e' : '#7c3aed')}
+                nodeBorderRadius={6}
+                pannable
+                zoomable
+                ariaLabel="Workflow overview"
               />
             </ReactFlow>
             </div>
@@ -889,7 +930,7 @@ export default function WorkflowCanvasPage() {
 
       {/* Connection rejected */}
       {connectError && (
-        <div role="alert" className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-amber-50 border border-amber-200 px-4 py-2 text-amber-800 text-sm shadow-md z-50">
+        <div role="alert" className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800/60 px-4 py-2 text-amber-800 dark:text-amber-200 text-sm shadow-md z-50">
           {connectError}
         </div>
       )}
@@ -901,14 +942,14 @@ export default function WorkflowCanvasPage() {
 
       {/* Save error */}
       {saveMutation.isError && (
-        <div className="fixed bottom-4 right-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-red-700 text-sm shadow-md z-50">
+        <div className="fixed bottom-4 right-4 rounded-md bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800/60 px-4 py-3 text-red-700 dark:text-red-300 text-sm shadow-md z-50">
           Save failed: {(saveMutation.error as Error).message}
         </div>
       )}
 
       {/* Execute error */}
       {executeMutation.isError && (
-        <div className="fixed bottom-4 right-4 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-red-700 text-sm shadow-md z-50">
+        <div className="fixed bottom-4 right-4 rounded-md bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800/60 px-4 py-3 text-red-700 dark:text-red-300 text-sm shadow-md z-50">
           Execute failed: {(executeMutation.error as Error).message}
         </div>
       )}

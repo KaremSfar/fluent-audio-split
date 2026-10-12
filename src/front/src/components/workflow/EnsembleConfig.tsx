@@ -37,7 +37,7 @@ export function EnsembleConfig({
         <div className="flex items-center gap-2">
           <button
             onClick={onOpenPresets}
-            className="text-[10px] text-violet-600 hover:text-violet-800 font-medium flex items-center gap-1"
+            className="text-[10px] text-violet-600 dark:text-violet-400 hover:text-violet-800 dark:hover:text-violet-200 font-medium flex items-center gap-1"
             title="Load an ensemble preset"
           >
             ★ Presets
@@ -47,7 +47,7 @@ export function EnsembleConfig({
             onClick={onToggle}
             title={enabled ? 'Disable ensemble' : 'Enable ensemble'}
             className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none ${
-              enabled ? 'bg-violet-500' : 'bg-slate-300'
+              enabled ? 'bg-violet-500' : 'bg-slate-300 dark:bg-zinc-600'
             }`}
           >
             <span
@@ -84,8 +84,8 @@ export function EnsembleConfig({
           </div>
 
           {/* Primary model chip */}
-          <div className="flex items-center gap-1 rounded-md bg-violet-100 dark:bg-violet-900/30 border border-violet-300 px-2 py-1">
-            <span className="text-[10px] text-violet-500 font-semibold shrink-0">PRIMARY</span>
+          <div className="flex items-center gap-1 rounded-md bg-violet-100 dark:bg-violet-900/30 border border-violet-300 dark:border-violet-700/70 px-2 py-1">
+            <span className="text-[10px] text-violet-500 dark:text-violet-400 font-semibold shrink-0">PRIMARY</span>
             <span className="text-xs flex-1 text-violet-800 dark:text-violet-200 truncate">{primaryModelLabel}</span>
           </div>
 
@@ -93,12 +93,12 @@ export function EnsembleConfig({
           {ensembleModels.map(m => (
             <div
               key={m.value}
-              className="flex items-center gap-1 rounded-md bg-violet-50 dark:bg-violet-950/20 border border-violet-200 px-2 py-1"
+              className="flex items-center gap-1 rounded-md bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-800/60 px-2 py-1"
             >
               <span className="text-xs flex-1 text-violet-800 dark:text-violet-300 truncate">{m.label}</span>
               <button
                 onClick={() => onRemoveModel(m.value)}
-                className="text-violet-400 hover:text-violet-700 text-xs ml-1 shrink-0"
+                className="text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 text-xs ml-1 shrink-0"
                 title="Remove from ensemble"
               >
                 ✕
@@ -117,7 +117,7 @@ export function EnsembleConfig({
               }}
               defaultValue=""
               key={ensembleModels.length} // reset after add
-              className="flex h-7 w-full rounded-md border border-dashed border-violet-300 bg-transparent px-2 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-muted-foreground"
+              className="flex h-7 w-full rounded-md border border-dashed border-violet-300 dark:border-violet-700/70 bg-transparent px-2 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-muted-foreground"
             >
               <option value="" disabled>+ Add compatible model…</option>
               {compatibleModels.map(m => (

@@ -20,7 +20,7 @@ export function ParamRow({ def, value, onChange }: ParamRowProps) {
         onClick={() => onChange(!checked)}
         title={checked ? 'Enabled — click to disable' : 'Disabled — click to enable'}
         className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none ${
-          checked ? 'bg-violet-500' : 'bg-slate-300'
+          checked ? 'bg-violet-500' : 'bg-slate-300 dark:bg-zinc-600'
         }`}
       >
         <span

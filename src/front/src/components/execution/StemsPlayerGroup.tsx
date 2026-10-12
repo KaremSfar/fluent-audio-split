@@ -130,14 +130,14 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload, engine: e
           const { muted, soloed } = rowControls(stem);
           return (
             <div key={stem} className="flex items-center gap-1.5">
-              <span className="text-[10px] font-medium text-violet-600 w-16 shrink-0 truncate text-right">
+              <span className="text-[10px] font-medium text-violet-600 dark:text-violet-400 w-16 shrink-0 truncate text-right">
                 {stem}
               </span>
               <button
                 type="button"
                 onClick={() => handleToggleMute(stem)}
                 disabled={loadState !== 'ready'}
-                className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-violet-200 text-violet-500 hover:bg-violet-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-violet-200 dark:border-violet-800/60 text-violet-500 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/40 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                 title={muted ? 'Unmute' : 'Mute'}
                 aria-label={muted ? 'Unmute' : 'Mute'}
                 aria-pressed={muted}
@@ -151,7 +151,7 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload, engine: e
                 type="button"
                 onClick={() => handleToggleSolo(stem)}
                 disabled={loadState !== 'ready'}
-                className={`inline-flex size-6 shrink-0 items-center justify-center rounded-md border ${soloed ? 'border-amber-400 bg-amber-100 text-amber-700' : 'border-violet-200 text-violet-500 hover:bg-violet-50'} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent`}
+                className={`inline-flex size-6 shrink-0 items-center justify-center rounded-md border ${soloed ? 'border-amber-400 bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'border-violet-200 dark:border-violet-800/60 text-violet-500 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/40'} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent`}
                 title={soloed ? 'Unsolo' : 'Solo (mute all other stems)'}
                 aria-label={soloed ? 'Unsolo' : 'Solo'}
                 aria-pressed={soloed}
@@ -160,7 +160,7 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload, engine: e
               </button>
               <button
                 onClick={() => onDownload(path)}
-                className="text-[10px] text-primary hover:underline px-1"
+                className="text-[10px] text-link hover:underline px-1"
                 title={`Download ${stem}`}
                 aria-label={`Download ${stem}`}
               >
@@ -186,14 +186,14 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload, engine: e
         {entries.map(([stem, path]) => {
           const { muted, soloed } = rowControls(stem);
           return (
-            <li key={stem} className="rounded-md border border-violet-100 bg-violet-50/40 p-2">
+            <li key={stem} className="rounded-md border border-violet-100 dark:border-violet-500/20 bg-violet-50/40 dark:bg-violet-500/[0.06] p-2">
               <div className="flex items-center gap-2">
-                <span className="font-medium text-violet-600 min-w-[80px] shrink-0">{stem}</span>
+                <span className="font-medium text-violet-600 dark:text-violet-400 min-w-[80px] shrink-0">{stem}</span>
                 <button
                   type="button"
                   onClick={() => handleToggleMute(stem)}
                   disabled={loadState !== 'ready'}
-                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-violet-200 text-violet-500 hover:bg-violet-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-violet-200 dark:border-violet-800/60 text-violet-500 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/40 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   title={muted ? 'Unmute' : 'Mute'}
                   aria-label={muted ? 'Unmute' : 'Mute'}
                   aria-pressed={muted}
@@ -205,7 +205,7 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload, engine: e
                   type="button"
                   onClick={() => handleToggleSolo(stem)}
                   disabled={loadState !== 'ready'}
-                  className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md border ${soloed ? 'border-amber-400 bg-amber-100 text-amber-700' : 'border-violet-200 text-violet-500 hover:bg-violet-50'} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent`}
+                  className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md border ${soloed ? 'border-amber-400 bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'border-violet-200 dark:border-violet-800/60 text-violet-500 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/40'} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent`}
                   title={soloed ? 'Unsolo' : 'Solo (mute all other stems)'}
                   aria-label={soloed ? 'Unsolo' : 'Solo'}
                   aria-pressed={soloed}
@@ -214,7 +214,7 @@ export function StemsPlayerGroup({ stems, compact = false, onDownload, engine: e
                 </button>
                 <button
                   onClick={() => onDownload(path)}
-                  className="shrink-0 text-sm text-primary hover:underline"
+                  className="shrink-0 text-sm text-link hover:underline"
                   title={`Download ${path.split('/').pop() ?? path}`}
                   aria-label={`Download ${stem}`}
                 >

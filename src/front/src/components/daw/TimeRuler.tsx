@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LoopRegion, StemSyncEngine } from '@/components/execution/stemSyncEngine';
 import { beatIndexFloor, type Anchor, type BeatGrid } from './beatGrid';
 import { useTransportPos } from './useTransportPos';
+import { cn } from '@/lib/utils';
 
 interface TimeRulerProps {
   engine: StemSyncEngine;
@@ -39,8 +40,8 @@ function gridPaths(grid: BeatGrid, duration: number, width: number): { bars: str
     const t = grid.beatTime(k);
     if (t < 0 || t > duration) continue;
     const x = ((t / duration) * width).toFixed(1);
-    if (grid.beatInBar(k) === 0) bars += `M${x} 16V28`;
-    else if (drawBeats) beats += `M${x} 22V28`;
+    if (grid.beatInBar(k) === 0) bars += `M${x} 17V32`;
+    else if (drawBeats) beats += `M${x} 24V32`;
   }
   return { bars, beats };
 }
@@ -94,26 +95,26 @@ export function TimeRuler({ engine, duration, grid, showGrid, anchors, loop, onL
         const p = posFromX(e.clientX);
         if (p != null) engine.seek(p);
       }}
-      className="relative h-7 cursor-pointer select-none bg-zinc-900"
+      className="relative h-8 cursor-pointer select-none"
       title="Click to seek · Shift+click to set a loop edge (snapped to the nearest bar line)"
     >
       {loop && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 border-x border-violet-400 bg-violet-500/20"
+          className="pointer-events-none absolute inset-y-0 border-x-2 border-primary bg-primary/15"
           style={{ left: `${pct(loop.start)}%`, width: `${pct(loop.end) - pct(loop.start)}%` }}
         />
       )}
       {paths && width > 0 && (
-        <svg aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${width} 28`} preserveAspectRatio="none">
-          <path d={paths.beats} stroke="rgba(161,161,170,0.6)" strokeWidth={1} />
-          <path d={paths.bars} stroke="rgba(167,139,250,0.9)" strokeWidth={1} />
+        <svg aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${width} 32`} preserveAspectRatio="none">
+          <path d={paths.beats} className="stroke-daw-beat" strokeWidth={1} />
+          <path d={paths.bars} className="stroke-daw-bar" strokeWidth={1} />
         </svg>
       )}
       {ticks.map((t) => (
         <span
           key={t}
-          className="absolute top-0 h-full border-l border-zinc-700 pl-1 text-[10px] leading-7 text-zinc-400"
+          className="absolute top-0 h-3.5 border-l border-muted-foreground/40 pl-1 text-[10px] font-medium leading-3 tabular-nums text-muted-foreground"
           style={{ left: `${(t / duration) * 100}%` }}
           aria-hidden="true"
         >
@@ -124,17 +125,26 @@ export function TimeRuler({ engine, duration, grid, showGrid, anchors, loop, onL
         <span
           key={`${a.kind}:${a.pos}`}
           aria-hidden="true"
-          className={`pointer-events-none absolute top-0 -translate-x-1/2 text-[9px] font-bold leading-none ${a.kind === 'beat' ? 'text-amber-300' : 'text-violet-300'}`}
+          title={a.kind === 'beat' ? 'Beat anchor' : 'Beat 1 anchor'}
+          className={cn(
+            'pointer-events-none absolute bottom-0 flex h-4 -translate-x-1/2 flex-col items-center',
+            a.kind === 'beat' ? 'text-amber-600 dark:text-amber-400' : 'text-primary dark:text-daw-bar',
+          )}
           style={{ left: `${pct(a.pos)}%` }}
         >
-          {a.kind === 'beat' ? '▼' : '1'}
+          <span className="flex size-3 items-center justify-center rounded-[3px] bg-current text-[8px] font-bold leading-none">
+            <span className="text-daw-lane">{a.kind === 'beat' ? '' : '1'}</span>
+          </span>
+          <span className="w-px flex-1 bg-current" />
         </span>
       ))}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 w-px bg-zinc-100"
+        className="pointer-events-none absolute inset-y-0 w-px bg-daw-playhead"
         style={{ left: `${pct(pos)}%` }}
-      />
+      >
+        <span className="absolute -left-[5px] top-0 size-0 border-x-[5px] border-t-[6px] border-x-transparent border-t-daw-playhead" />
+      </div>
     </div>
   );
 }

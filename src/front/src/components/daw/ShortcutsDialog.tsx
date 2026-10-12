@@ -54,7 +54,7 @@ export function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () 
         aria-modal="true"
         aria-labelledby="shortcuts-title"
         onMouseDown={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-zinc-900 p-5 text-zinc-100 shadow-xl"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl"
       >
         <div className="mb-3 flex items-center justify-between">
           <h2 id="shortcuts-title" className="text-lg font-semibold">Keyboard shortcuts</h2>
@@ -62,7 +62,7 @@ export function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () 
             ref={closeRef}
             type="button"
             onClick={onClose}
-            className="rounded bg-zinc-800 px-3 py-1 text-sm hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+            className="rounded-md bg-secondary px-3 py-1 text-sm text-secondary-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Close
           </button>
@@ -70,12 +70,12 @@ export function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () 
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
           {SHORTCUTS.map(([keys, what]) => (
             <div key={keys} className="contents">
-              <dt><kbd className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs">{keys}</kbd></dt>
-              <dd className="text-zinc-300">{what}</dd>
+              <dt><kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-xs">{keys}</kbd></dt>
+              <dd className="text-muted-foreground">{what}</dd>
             </div>
           ))}
         </dl>
-        <p className="mt-3 text-xs text-zinc-400">Shortcuts are ignored while typing in a field.</p>
+        <p className="mt-3 text-xs text-muted-foreground">Shortcuts are ignored while typing in a field.</p>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { ChevronDown, ChevronRight, Minus, Plus, X } from 'lucide-react';
+import { AudioWaveform, ChevronDown, ChevronRight, Metronome, Minus, Plus, Target, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { VolumeFader } from './VolumeFader';
 import {
@@ -14,6 +14,8 @@ import {
 } from './metronome';
 import type { AnchorKind } from './beatGrid';
 import { formatClock } from './useTransportPos';
+import { Divider } from './Divider';
+import { caption, ctl, ctlIcon, field, ghost, neutral, on, segItem, segTrack, toggle } from './ui';
 
 export interface AnalysisSummary {
   bpm: number;
@@ -51,10 +53,8 @@ interface MetronomeControlsProps {
   canPractice: boolean;
 }
 
-const small =
-  'inline-flex h-8 items-center justify-center rounded px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 disabled:opacity-50';
-const field = 'h-8 rounded bg-zinc-800 px-1 text-xs text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400';
-const toggle = (on: boolean) => (on ? 'bg-violet-500 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700');
+/** Compact (24 px) control for the Advanced panel. */
+const mini = cn(ctl, 'h-7 px-2');
 
 const SUBDIVISIONS: { value: Subdivision; label: string }[] = [
   { value: 1, label: 'Off' },
@@ -87,111 +87,183 @@ export function MetronomeControls(p: MetronomeControlsProps) {
   const gap = (patch: Partial<MetronomeSettings['gap']>) => p.onChange({ gap: { ...s.gap, ...patch } });
 
   return (
-    <div className="flex min-w-[320px] flex-1 flex-col gap-2">
-      {/* ── Main row ───────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => p.onChange({ enabled: !s.enabled })}
-          aria-pressed={s.enabled}
-          title="Metronome (C)"
-          className={cn(small, 'px-3 font-medium', toggle(s.enabled))}
-        >
-          🎵 Click
-        </button>
-
-        <div role="group" aria-label="Click timing" className="flex overflow-hidden rounded">
+    <div className="flex flex-col gap-2.5">
+      {/* ── Click + tempo ───────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
-            aria-pressed={!follow}
-            onClick={() => p.onChange({ mode: 'fixed' })}
-            className={cn(small, 'rounded-none', toggle(!follow))}
-            title="Constant tempo (BPM + downbeat offset)"
+            onClick={() => p.onChange({ enabled: !s.enabled })}
+            aria-pressed={s.enabled}
+            title="Metronome (C)"
+            className={cn(ctl, 'pl-2', toggle(s.enabled))}
           >
-            Fixed tempo
+            <Metronome className="size-4" aria-hidden="true" /> Click
           </button>
+          <div role="group" aria-label="Click timing" className={segTrack}>
+            <button
+              type="button"
+              aria-pressed={!follow}
+              onClick={() => p.onChange({ mode: 'fixed' })}
+              className={segItem(!follow)}
+              title="Constant tempo (BPM + downbeat offset)"
+            >
+              Fixed tempo
+            </button>
+            <button
+              type="button"
+              aria-pressed={follow}
+              disabled={!hasMap}
+              onClick={() => p.onChange({ mode: 'follow' })}
+              className={segItem(follow)}
+              title={hasMap ? 'Follow the analysed beat map (handles tempo drift)' : 'Analyze the song first'}
+            >
+              Follow song
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {follow ? (
+            <span className="text-xs tabular-nums text-muted-foreground" title="Average tempo of the beat map">
+              Map ≈{s.map?.bpm.toFixed(1)} BPM · {s.map?.beats.length} beats
+            </span>
+          ) : (
+            <>
+              <div className="flex items-center" role="group" aria-label="Tempo">
+                <button
+                  type="button"
+                  className={cn(ctlIcon, neutral, 'rounded-r-none')}
+                  aria-label="Decrease tempo"
+                  onClick={(e) => p.onChange({ bpm: clampBpm(s.bpm - (e.shiftKey ? 0.1 : 1)) })}
+                >
+                  <Minus className="size-3.5" />
+                </button>
+                <label className="relative">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={BPM_MIN}
+                    max={BPM_MAX}
+                    step={0.1}
+                    value={draft ?? s.bpm.toFixed(1)}
+                    aria-label="Tempo in BPM"
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={commit}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commit();
+                    }}
+                    className={cn(field, 'w-[88px] rounded-none border-x-0 pr-9 text-right font-mono tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none')}
+                  />
+                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-medium text-muted-foreground" aria-hidden="true">
+                    BPM
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  className={cn(ctlIcon, neutral, 'rounded-l-none')}
+                  aria-label="Increase tempo"
+                  onClick={(e) => p.onChange({ bpm: clampBpm(s.bpm + (e.shiftKey ? 0.1 : 1)) })}
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              </div>
+              <button type="button" onClick={p.onTap} title="Tap tempo (T)" className={cn(ctl, neutral)}>
+                Tap
+              </button>
+            </>
+          )}
           <button
             type="button"
-            aria-pressed={follow}
-            disabled={!hasMap}
-            onClick={() => p.onChange({ mode: 'follow' })}
-            className={cn(small, 'rounded-none', toggle(follow))}
-            title={hasMap ? 'Follow the analysed beat map (handles tempo drift)' : 'Analyze the song first'}
+            onClick={p.onAnalyze}
+            disabled={!p.canAnalyze || p.analyzing}
+            aria-busy={p.analyzing}
+            title="Map every beat of the song (uses the drums stem if there is one) so the click can follow tempo drift"
+            className={cn(ctl, neutral, 'pl-2')}
           >
-            Follow song
+            <AudioWaveform className="size-4" aria-hidden="true" />
+            {p.analyzing ? `Analyzing… ${Math.round(p.analyzeProgress * 100)}%` : hasMap ? 'Re-analyze' : 'Analyze'}
           </button>
         </div>
 
-        {follow ? (
-          <span className="text-xs text-zinc-300" title="Average tempo of the beat map">
-            Map ~{s.map?.bpm.toFixed(1)} BPM · {s.map?.beats.length} beats
+        <Divider />
+
+        <div className="flex items-center gap-3">
+          <label className={cn(caption, 'flex items-center gap-1.5')}>
+            Beats/bar
+            <select value={s.beatsPerBar} onChange={(e) => p.onChange({ beatsPerBar: Number(e.target.value) })} className={field}>
+              {Array.from({ length: BEATS_PER_BAR_MAX - BEATS_PER_BAR_MIN + 1 }, (_, i) => i + BEATS_PER_BAR_MIN).map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+          <label className={cn(caption, 'flex items-center gap-1.5')}>
+            Count-in
+            <select
+              value={s.countInBars}
+              onChange={(e) => p.onChange({ countInBars: Number(e.target.value) as 0 | 1 | 2 })}
+              className={field}
+            >
+              <option value={0}>Off</option>
+              <option value={1}>1 bar</option>
+              <option value={2}>2 bars</option>
+            </select>
+          </label>
+        </div>
+
+      </div>
+
+      {/* ── Grid alignment + Advanced toggle ───────────────────── */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex items-center gap-1.5" role="group" aria-label="Grid alignment">
+          <span className={cn(caption, 'min-w-[124px] tabular-nums')}>
+            {follow ? 'Beat 1 alignment' : `Downbeat ${s.offsetSec.toFixed(3)} s`}
           </span>
-        ) : (
-          <>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                className={cn(small, 'bg-zinc-800 hover:bg-zinc-700')}
-                aria-label="Decrease tempo"
-                onClick={(e) => p.onChange({ bpm: clampBpm(s.bpm - (e.shiftKey ? 0.1 : 1)) })}
-              >
-                <Minus className="size-3" />
-              </button>
-              <input
-                type="number"
-                inputMode="decimal"
-                min={BPM_MIN}
-                max={BPM_MAX}
-                step={0.1}
-                value={draft ?? s.bpm.toFixed(1)}
-                aria-label="Tempo in BPM"
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={commit}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commit();
-                }}
-                className={cn(field, 'w-16 text-right font-mono tabular-nums')}
-              />
-              <span className="text-xs text-zinc-400">BPM</span>
-              <button
-                type="button"
-                className={cn(small, 'bg-zinc-800 hover:bg-zinc-700')}
-                aria-label="Increase tempo"
-                onClick={(e) => p.onChange({ bpm: clampBpm(s.bpm + (e.shiftKey ? 0.1 : 1)) })}
-              >
-                <Plus className="size-3" />
-              </button>
-            </div>
-            <button type="button" onClick={p.onTap} title="Tap tempo (T)" className={cn(small, 'bg-zinc-800 hover:bg-zinc-700')}>
-              Tap
-            </button>
-          </>
-        )}
-
+          <button type="button" className={cn(mini, neutral)} onClick={() => p.onNudge(-0.01)} aria-label="Nudge grid 10 milliseconds earlier" title="[">
+            −10 ms
+          </button>
+          <button type="button" className={cn(mini, neutral)} onClick={() => p.onNudge(0.01)} aria-label="Nudge grid 10 milliseconds later" title="]">
+            +10 ms
+          </button>
+          <button
+            type="button"
+            className={cn(mini, neutral)}
+            onClick={p.onSetDownbeat}
+            title={follow ? 'Make the beat nearest the playhead beat 1 (D)' : 'Set downbeat at the playhead (D)'}
+          >
+            Set at playhead
+          </button>
+        </div>
+        <Divider />
+        <div className="flex items-center gap-3">
+          <div className="flex w-60 shrink-0 items-center gap-2" title="The click bypasses the master fader, so it stays audible when the mix is pulled down.">
+            <span className={cn(caption, 'shrink-0')}>Click vol</span>
+            <VolumeFader label="Click volume" valueDb={s.volumeDb} onChange={(db) => p.onChange({ volumeDb: db })} className="flex-1" />
+          </div>
+          <button
+            type="button"
+            onClick={p.onTogglePractice}
+            disabled={!p.canPractice && !p.practice}
+            aria-pressed={p.practice}
+            title={
+              p.practice
+                ? 'Leave click practice and restore the previous mix (P)'
+                : 'Click practice: mute every stem but the focused one, click on, 1-bar count-in (P)'
+            }
+            className={cn(mini, 'pl-1.5', toggle(p.practice))}
+          >
+            <Target className="size-3.5" aria-hidden="true" />
+            {p.practice ? 'Exit practice' : 'Practice'}
+          </button>
+        </div>
         <button
           type="button"
-          onClick={p.onAnalyze}
-          disabled={!p.canAnalyze || p.analyzing}
-          aria-busy={p.analyzing}
-          title="Map every beat of the song (uses the drums stem if there is one) so the click can follow tempo drift"
-          className={cn(small, 'bg-zinc-800 hover:bg-zinc-700')}
+          aria-expanded={advanced}
+          aria-controls={advancedId}
+          onClick={() => setAdvanced((v) => !v)}
+          className={cn(mini, ghost, 'ml-auto gap-1 pl-1.5')}
         >
-          {p.analyzing ? `Analyzing… ${Math.round(p.analyzeProgress * 100)}%` : hasMap ? 'Re-analyze' : 'Analyze'}
-        </button>
-
-        <button
-          type="button"
-          onClick={p.onTogglePractice}
-          disabled={!p.canPractice && !p.practice}
-          aria-pressed={p.practice}
-          title={
-            p.practice
-              ? 'Leave click practice and restore the previous mix (P)'
-              : 'Click practice: mute every stem but the focused one, click on, 1-bar count-in (P)'
-          }
-          className={cn(small, toggle(p.practice))}
-        >
-          {p.practice ? 'Exit practice' : 'Click practice'}
+          {advanced ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />} Advanced
         </button>
       </div>
 
@@ -202,96 +274,46 @@ export function MetronomeControls(p: MetronomeControlsProps) {
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(p.analyzeProgress * 100)}
-          className="h-1 w-full max-w-xs overflow-hidden rounded bg-zinc-800"
+          className="h-1 w-full max-w-xs overflow-hidden rounded-full bg-daw-control"
         >
-          <div className="h-full bg-violet-400 transition-[width]" style={{ width: `${Math.round(p.analyzeProgress * 100)}%` }} />
+          <div className="h-full bg-primary transition-[width]" style={{ width: `${Math.round(p.analyzeProgress * 100)}%` }} />
         </div>
       )}
 
       {p.summary && (
-        <div className="flex flex-wrap items-center gap-2 rounded bg-zinc-800 px-2 py-1 text-xs" role="status">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-daw-border bg-daw-lane px-3 py-1.5 text-xs" role="status">
           <span>
-            Beat map from {p.summary.source}: ~{p.summary.bpm.toFixed(1)} BPM, {p.summary.beats} beats, confidence{' '}
+            Beat map from {p.summary.source}: ≈{p.summary.bpm.toFixed(1)} BPM, {p.summary.beats} beats, confidence{' '}
             {Math.round(p.summary.confidence * 100)}%.
             {p.summary.followed
               ? ' The click now follows the song.'
               : ' Low confidence: the click may not lock to this song.'}
           </span>
           {!follow && (
-            <button type="button" onClick={() => p.onChange({ mode: 'follow' })} className={cn(small, 'h-6 bg-violet-500 text-white')}>
+            <button type="button" onClick={() => p.onChange({ mode: 'follow' })} className={cn(mini, on)}>
               Follow anyway
             </button>
           )}
-          <button type="button" onClick={p.onUseFixed} className={cn(small, 'h-6 bg-zinc-700')} title="Use the average tempo and first downbeat as a fixed grid">
+          <button type="button" onClick={p.onUseFixed} className={cn(mini, neutral)} title="Use the average tempo and first downbeat as a fixed grid">
             Use as fixed tempo
           </button>
-          <button type="button" onClick={p.onDismissSummary} className={cn(small, 'h-6 bg-zinc-700')} aria-label="Dismiss analysis summary">
-            <X className="size-3" />
+          <button type="button" onClick={p.onDismissSummary} className={cn(mini, ghost, 'w-7 px-0')} aria-label="Dismiss analysis summary">
+            <X className="size-3.5" />
           </button>
         </div>
       )}
-      {p.analyzeError && <p className="text-xs text-red-300" role="status">{p.analyzeError}</p>}
-
-      {/* ── Everyday settings ─────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-zinc-300">
-        <label className="flex items-center gap-1">
-          Beats/bar
-          <select value={s.beatsPerBar} onChange={(e) => p.onChange({ beatsPerBar: Number(e.target.value) })} className={field}>
-            {Array.from({ length: BEATS_PER_BAR_MAX - BEATS_PER_BAR_MIN + 1 }, (_, i) => i + BEATS_PER_BAR_MIN).map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-1">
-          Count-in
-          <select
-            value={s.countInBars}
-            onChange={(e) => p.onChange({ countInBars: Number(e.target.value) as 0 | 1 | 2 })}
-            className={field}
-          >
-            <option value={0}>Off</option>
-            <option value={1}>1 bar</option>
-            <option value={2}>2 bars</option>
-          </select>
-        </label>
-        <div className="flex items-center gap-1">
-          {follow ? <span>Beat 1</span> : <span>Downbeat {s.offsetSec.toFixed(3)} s</span>}
-          <button type="button" className={cn(small, 'h-6 bg-zinc-800 hover:bg-zinc-700')} onClick={() => p.onNudge(-0.01)} aria-label="Nudge grid 10 milliseconds earlier" title="[">−10 ms</button>
-          <button type="button" className={cn(small, 'h-6 bg-zinc-800 hover:bg-zinc-700')} onClick={() => p.onNudge(0.01)} aria-label="Nudge grid 10 milliseconds later" title="]">+10 ms</button>
-          <button
-            type="button"
-            className={cn(small, 'h-6 bg-zinc-800 hover:bg-zinc-700')}
-            onClick={p.onSetDownbeat}
-            title={follow ? 'Make the beat nearest the playhead beat 1 (D)' : 'Set downbeat at the playhead (D)'}
-          >
-            Set here
-          </button>
-        </div>
-        <div className="flex min-w-[160px] items-center gap-1" title="The click bypasses the master fader, so it stays audible when the mix is pulled down.">
-          <span className="shrink-0">Click vol</span>
-          <VolumeFader label="Click volume" valueDb={s.volumeDb} onChange={(db) => p.onChange({ volumeDb: db })} />
-        </div>
-        <button
-          type="button"
-          aria-expanded={advanced}
-          aria-controls={advancedId}
-          onClick={() => setAdvanced((v) => !v)}
-          className={cn(small, 'h-6 gap-1 bg-transparent text-zinc-300 hover:bg-zinc-800')}
-        >
-          {advanced ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />} Advanced
-        </button>
-      </div>
+      {p.analyzeError && <p className="text-xs text-red-700 dark:text-red-300" role="status">{p.analyzeError}</p>}
 
       {/* ── Advanced ──────────────────────────────────────────── */}
       {advanced && (
-        <div id={advancedId} className="flex flex-col gap-2 rounded border border-zinc-800 p-2 text-xs text-zinc-300">
+        <div id={advancedId} className="flex flex-col gap-3 rounded-md border border-daw-border bg-daw-lane p-3 text-xs text-muted-foreground">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <label className="flex items-center gap-1">
               Subdivision
               <select
                 value={s.subdivision}
                 onChange={(e) => p.onChange({ subdivision: Number(e.target.value) as Subdivision })}
-                className={field}
+                className={cn(field, 'h-7')}
               >
                 {SUBDIVISIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
@@ -308,9 +330,9 @@ export function MetronomeControls(p: MetronomeControlsProps) {
                     aria-label={`Beat ${i + 1}: ${ACCENT_NAMES[lvl]}. Change`}
                     title="Cycle off / normal / accent"
                     className={cn(
-                      small,
-                      'h-6 w-6 px-0 font-mono',
-                      lvl === 2 ? 'bg-violet-500 text-white' : lvl === 1 ? 'bg-zinc-700 text-zinc-100' : 'border border-zinc-700 bg-transparent text-zinc-500',
+                      mini,
+                      'w-7 px-0 font-mono',
+                      lvl === 2 ? on : lvl === 1 ? 'bg-daw-control-hover text-foreground' : 'border border-dashed border-daw-border bg-transparent text-muted-foreground',
                     )}
                   >
                     {lvl === 0 ? '·' : i + 1}
@@ -322,7 +344,7 @@ export function MetronomeControls(p: MetronomeControlsProps) {
               type="button"
               aria-pressed={s.flash}
               onClick={() => p.onChange({ flash: !s.flash })}
-              className={cn(small, 'h-6', toggle(s.flash))}
+              className={cn(mini, toggle(s.flash))}
               title="Flash the screen edge on each beat (off when your system asks for reduced motion)"
             >
               Beat flash
@@ -334,7 +356,7 @@ export function MetronomeControls(p: MetronomeControlsProps) {
               type="button"
               aria-pressed={s.gap.enabled}
               onClick={() => gap({ enabled: !s.gap.enabled })}
-              className={cn(small, 'h-6', toggle(s.gap.enabled))}
+              className={cn(mini, toggle(s.gap.enabled))}
               title="Mute the click for stretches to test your own time (G)"
             >
               Gap click
@@ -347,7 +369,7 @@ export function MetronomeControls(p: MetronomeControlsProps) {
                 max={16}
                 value={s.gap.onBars}
                 onChange={(e) => gap({ onBars: Number(e.target.value) })}
-                className={cn(field, 'w-12')}
+                className={cn(field, 'h-7 w-12')}
                 aria-label="Bars with click"
               />
               bars
@@ -360,7 +382,7 @@ export function MetronomeControls(p: MetronomeControlsProps) {
                 max={16}
                 value={s.gap.offBars}
                 onChange={(e) => gap({ offBars: Number(e.target.value) })}
-                className={cn(field, 'w-12')}
+                className={cn(field, 'h-7 w-12')}
                 aria-label="Silent bars"
               />
               bars
@@ -372,18 +394,18 @@ export function MetronomeControls(p: MetronomeControlsProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Tempo map">
-            <button type="button" onClick={p.onHalf} className={cn(small, 'h-6 bg-zinc-800 hover:bg-zinc-700')} title="Half time (every other beat)">
+            <button type="button" onClick={p.onHalf} className={cn(mini, neutral)} title="Half time (every other beat)">
               ½× Half
             </button>
-            <button type="button" onClick={p.onDouble} className={cn(small, 'h-6 bg-zinc-800 hover:bg-zinc-700')} title="Double time (add the off-beats)">
+            <button type="button" onClick={p.onDouble} className={cn(mini, neutral)} title="Double time (add the off-beats)">
               2× Double
             </button>
             {follow && (
               <>
-                <button type="button" onClick={() => p.onAnchor('beat')} className={cn(small, 'h-6 bg-zinc-800 hover:bg-zinc-700')} title="This is a beat: pull the nearest map beat onto the playhead (A)">
+                <button type="button" onClick={() => p.onAnchor('beat')} className={cn(mini, neutral)} title="This is a beat: pull the nearest map beat onto the playhead (A)">
                   Anchor beat
                 </button>
-                <button type="button" onClick={() => p.onAnchor('downbeat')} className={cn(small, 'h-6 bg-zinc-800 hover:bg-zinc-700')} title="This is beat 1: pull the nearest map beat onto the playhead and start a bar there (Shift+A)">
+                <button type="button" onClick={() => p.onAnchor('downbeat')} className={cn(mini, neutral)} title="This is beat 1: pull the nearest map beat onto the playhead and start a bar there (Shift+A)">
                   Anchor beat 1
                 </button>
               </>
@@ -391,28 +413,28 @@ export function MetronomeControls(p: MetronomeControlsProps) {
           </div>
           {follow && (
             <>
-              <p className="text-zinc-500">
+              <p className="text-muted-foreground">
                 For exact anchors, pause and click the waveform right on the hit. Anchors set while playing include your reaction time.
               </p>
               {s.anchors.length > 0 && (
                 <div className="flex flex-col gap-1">
                   <ul className="flex max-h-24 flex-wrap gap-1 overflow-y-auto" aria-label="Anchors">
                     {s.anchors.map((a, i) => (
-                      <li key={`${a.kind}:${a.pos}`} className="flex items-center gap-1 rounded bg-zinc-800 pl-2">
+                      <li key={`${a.kind}:${a.pos}`} className="flex items-center gap-1 rounded-md bg-daw-control pl-2 text-foreground">
                         <span className="font-mono tabular-nums">{formatClock(a.pos)}</span>
-                        <span className="text-zinc-400">{ANCHOR_NAMES[a.kind]}</span>
+                        <span className="text-muted-foreground">{ANCHOR_NAMES[a.kind]}</span>
                         <button
                           type="button"
                           onClick={() => p.onRemoveAnchor(i)}
                           aria-label={`Remove ${ANCHOR_NAMES[a.kind]} anchor at ${formatClock(a.pos)}`}
-                          className={cn(small, 'h-6 w-6 px-0 hover:bg-zinc-700')}
+                          className={cn(mini, ghost, 'w-7 px-0')}
                         >
                           <X className="size-3" />
                         </button>
                       </li>
                     ))}
                   </ul>
-                  <button type="button" onClick={p.onClearAnchors} className={cn(small, 'h-6 self-start bg-zinc-800 hover:bg-zinc-700')}>
+                  <button type="button" onClick={p.onClearAnchors} className={cn(mini, neutral, 'self-start')}>
                     Clear anchors
                   </button>
                 </div>

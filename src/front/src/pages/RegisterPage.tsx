@@ -2,6 +2,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Link, useNavigate } from 'react-router-dom';
+import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { useAuth } from '@/auth/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,6 +43,7 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <ThemeToggle className="fixed right-4 top-4" />
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <div className="text-4xl">🎵</div>
@@ -132,7 +134,7 @@ export default function RegisterPage() {
               Already have an account?{' '}
               <Link
                 to="/login"
-                className="text-primary font-medium hover:underline"
+                className="text-link font-medium hover:underline"
               >
                 Sign in
               </Link>

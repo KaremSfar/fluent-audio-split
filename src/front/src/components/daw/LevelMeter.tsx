@@ -23,16 +23,16 @@ export function LevelMeter({ id, bus, className }: LevelMeterProps) {
     <div
       aria-hidden="true"
       className={cn(
-        'relative h-1.5 w-full overflow-hidden rounded-sm bg-gradient-to-r from-emerald-500 via-emerald-400 to-red-500',
+        'relative h-1.5 w-full overflow-hidden rounded-full bg-gradient-to-r from-emerald-500 from-60% via-amber-400 via-85% to-red-500',
         className,
       )}
     >
       <div
         ref={coverRef}
-        className="absolute inset-0 origin-right bg-zinc-800"
+        className="absolute inset-0 origin-right bg-daw-meter"
         style={{ transform: 'scaleX(1)' }}
       />
-      <div ref={holdRef} className="absolute inset-y-0 w-px bg-zinc-100" style={{ left: 0 }} />
+      <div ref={holdRef} className="absolute inset-y-0 w-0.5 bg-foreground/70" style={{ left: 0 }} />
     </div>
   );
 }

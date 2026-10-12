@@ -24,7 +24,7 @@ export function ResultsToast({ onOpen, onStay }: ResultsToastProps) {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-4 right-4 z-50 w-80 overflow-hidden rounded-md border bg-background shadow-lg"
+      className="fixed bottom-4 right-4 z-50 w-80 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-lg"
     >
       <div className="px-4 py-3 space-y-2">
         <p className="text-sm font-medium">Execution finished. Opening results…</p>

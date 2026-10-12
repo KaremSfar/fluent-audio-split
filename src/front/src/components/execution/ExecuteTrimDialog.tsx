@@ -231,10 +231,10 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
       case 'ready':
         return {
           text: wasReused ? 'Ready ✓ (reused previous upload)' : 'Ready ✓',
-          className: 'text-green-600',
+          className: 'text-green-600 dark:text-green-400',
         };
       case 'error':
-        return { text: 'Upload failed', className: 'text-red-600' };
+        return { text: 'Upload failed', className: 'text-red-600 dark:text-red-400' };
       default:
         return null;
     }
@@ -295,7 +295,7 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
                   <span className="w-full border-t" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-background px-3 text-muted-foreground">Or paste a YouTube URL</span>
+                  <span className="bg-card px-3 text-muted-foreground">Or paste a YouTube URL</span>
                 </div>
               </div>
 
@@ -328,7 +328,7 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
                 {isImportingYouTube && (
                   <p className="text-sm text-muted-foreground">Downloading and preparing an MP3 preview…</p>
                 )}
-                {youTubeError && <p className="text-sm text-red-600">{youTubeError}</p>}
+                {youTubeError && <p className="text-sm text-red-600 dark:text-red-400">{youTubeError}</p>}
               </div>
             </div>
           ) : (
@@ -371,7 +371,7 @@ export function ExecuteTrimDialog({ onExecute, onClose, isPending }: ExecuteTrim
                     <Button
                       variant="link"
                       size="sm"
-                      className="h-auto p-0 text-red-600 underline"
+                      className="h-auto p-0 text-red-600 dark:text-red-400 underline"
                       onClick={() => setRetryToken((t) => t + 1)}
                     >
                       Retry upload

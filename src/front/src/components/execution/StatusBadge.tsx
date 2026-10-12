@@ -8,20 +8,20 @@ export function StatusBadge({ status }: StatusBadgeProps) {
   const getColorClass = (status: WorkflowExecutionStatus | NodeExecutionStatus): string => {
     switch (status) {
       case 'Completed':
-        return 'bg-green-100 text-green-800';
+        return 'bg-green-100 dark:bg-green-500/15 text-green-800 dark:text-green-200';
       case 'Running':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-blue-100 dark:bg-blue-500/15 text-blue-800 dark:text-blue-200';
       case 'Failed':
-        return 'bg-red-100 text-red-800';
+        return 'bg-red-100 dark:bg-red-500/15 text-red-800 dark:text-red-200';
       case 'PartiallyFailed':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-200';
       case 'Cancelled':
-        return 'bg-gray-100 text-gray-600';
+        return 'bg-muted text-muted-foreground';
       case 'Pending':
       case 'Queued':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-muted text-foreground';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-muted text-foreground';
     }
   };
 

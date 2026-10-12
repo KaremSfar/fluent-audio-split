@@ -6,6 +6,8 @@ import type { StemSyncEngine } from '@/components/execution/stemSyncEngine';
 import type { ResultTrack } from '@/types/results';
 import { TrackHeader } from './TrackHeader';
 import { stemColor } from './stemColor';
+import { dawFocus } from './ui';
+import { useTheme } from '@/theme/useTheme';
 import type { MeterBus } from './useMeters';
 import type { TrackMix } from './useMixerState';
 
@@ -25,15 +27,18 @@ interface TrackLaneProps {
   onDownload: () => void;
   onRemove: () => void;
   onRetryLoad: () => void;
+  /** The page draws one shared playhead over the lanes (wide layouts); otherwise each lane shows its own. */
+  sharedPlayhead: boolean;
 }
 
 const laneFocus =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400';
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring';
 
 /** One arrange-view lane: channel header (300 px) + waveform. Handles pending/failed placeholders. */
 export function TrackLane(props: TrackLaneProps) {
   const { track, index, engine, bus, mix, audible, canvasHref, onFocusTrack } = props;
-  const color = stemColor(track.outputName, track.nodeType);
+  const { theme } = useTheme();
+  const color = stemColor(track.outputName, track.nodeType, theme);
   const ready = track.state === 'Ready' && !!track.artifactPath;
 
   return (
@@ -44,7 +49,7 @@ export function TrackLane(props: TrackLaneProps) {
       data-track-lane={index}
       onFocus={() => onFocusTrack(track.id)}
       className={cn(
-        'grid grid-cols-1 border-t border-zinc-800 md:grid-cols-[300px_minmax(0,1fr)]',
+        'grid grid-cols-1 border-b border-daw-border md:grid-cols-[300px_minmax(0,1fr)]',
         laneFocus,
         ready && !audible && 'opacity-50',
       )}
@@ -62,40 +67,41 @@ export function TrackLane(props: TrackLaneProps) {
           onRemove={props.onRemove}
         />
       ) : (
-        <div className="flex items-start gap-2 bg-zinc-900 px-3 py-2">
-          <span className="mt-1 size-3 shrink-0 rounded-sm" style={{ backgroundColor: color }} aria-hidden="true" />
+        <div className="relative flex items-start gap-2 bg-daw-surface py-2.5 pl-4 pr-3">
+          <span className="absolute inset-y-0 left-0 w-1 opacity-50" style={{ backgroundColor: color }} aria-hidden="true" />
           <div className="min-w-0 flex-1">
-            <p id={`track-name-${track.id}`} className="truncate text-sm font-medium text-zinc-100">{track.displayName}</p>
-            <p className="truncate text-xs text-zinc-400">{track.nodeLabel}</p>
+            <p id={`track-name-${track.id}`} className="truncate text-sm font-semibold text-foreground">{track.displayName}</p>
+            <p className="truncate text-xs text-muted-foreground">{track.nodeLabel}</p>
           </div>
           <button
             type="button"
             onClick={props.onRemove}
             aria-label={`Remove ${track.displayName} from results`}
             title="Remove from results"
-            className="inline-flex size-7 shrink-0 items-center justify-center rounded text-zinc-300 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+            className={cn('inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-daw-control hover:text-foreground', dawFocus)}
           >
             <X className="size-3.5" />
           </button>
         </div>
       )}
 
-      <div className="flex min-h-[88px] items-center bg-zinc-950 px-2 py-2">
+      <div className="flex min-h-[96px] items-center bg-daw-lane px-2 py-3">
         {ready ? (
           <StemWaveformPlayer
             id={track.id}
             path={track.artifactPath!}
             engine={engine}
-            variant="dark"
+            variant="studio"
             color={color}
+            cursor={!props.sharedPlayhead}
             onRetry={props.onRetryLoad}
           />
         ) : track.state === 'Pending' ? (
-          <div className="flex h-[72px] flex-1 animate-pulse items-center rounded bg-zinc-900 px-3 text-sm text-zinc-400 motion-reduce:animate-none">
+          <div className="flex h-[72px] flex-1 animate-pulse items-center rounded-md bg-daw-control px-3 text-sm text-muted-foreground motion-reduce:animate-none">
             Waiting for {track.nodeLabel}…
           </div>
         ) : (
-          <div className="flex min-h-[72px] flex-1 flex-wrap items-center gap-x-3 gap-y-1 rounded bg-red-950/60 px-3 text-sm text-red-200">
+          <div className="flex min-h-[72px] flex-1 flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-red-200 bg-red-50 px-3 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-200">
             <span>
               {track.displayName} ({track.nodeLabel}){' '}
               {track.state === 'Failed'
@@ -106,7 +112,7 @@ export function TrackLane(props: TrackLaneProps) {
             </span>
             <Link
               to={canvasHref}
-              className="rounded border border-red-300/60 px-2 py-0.5 text-xs hover:bg-red-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+              className={cn('rounded-md border border-red-300 px-2 py-0.5 text-xs hover:bg-red-100 dark:border-red-300/60 dark:hover:bg-red-950', dawFocus)}
             >
               Retry on canvas
             </Link>

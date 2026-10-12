@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
@@ -8,6 +8,7 @@ import { executionsService } from '@/services/executionsService';
 import { workflowsService } from '@/services/workflowsService';
 import { filesService } from '@/services/filesService';
 import { useExecutionStream } from '@/hooks/useExecutionStream';
+import { Keyboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { StatusBadge } from '@/components/execution/StatusBadge';
@@ -21,6 +22,7 @@ import { BeatFlash } from '@/components/daw/BeatFlash';
 import { AddTrackPopover } from '@/components/daw/AddTrackPopover';
 import { ShortcutsDialog } from '@/components/daw/ShortcutsDialog';
 import { EmptyResults } from '@/components/daw/EmptyResults';
+import { LanesOverlay } from '@/components/daw/LanesOverlay';
 import { useDawShortcuts } from '@/components/daw/useDawShortcuts';
 import { useMeters } from '@/components/daw/useMeters';
 import { anySoloed, isAudible, trackMix, useMixerState } from '@/components/daw/useMixerState';
@@ -56,6 +58,17 @@ const FOLLOW_CONFIDENCE = 0.35;
 /** Fewer beats than this is not a usable map. */
 const MIN_MAP_BEATS = 8;
 const ANCHOR_LABEL: Record<AnchorKind, string> = { beat: 'Beat', downbeat: 'Beat 1', bar1: 'Beat 1' };
+
+const WIDE_QUERY = '(min-width: 768px)';
+function subscribeWide(cb: () => void) {
+  const mq = window.matchMedia(WIDE_QUERY);
+  mq.addEventListener('change', cb);
+  return () => mq.removeEventListener('change', cb);
+}
+/** Two-column (md+) lane layout, where one shared playhead is drawn over all lanes. */
+function useWideLayout(): boolean {
+  return useSyncExternalStore(subscribeWide, () => window.matchMedia(WIDE_QUERY).matches, () => true);
+}
 
 function isNotFound(err: unknown): boolean {
   return axios.isAxiosError(err) && err.response?.status === 404;
@@ -486,15 +499,16 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
   const anySolo = anySoloed(mixer);
   const fileName = results.inputFile.originalFileName;
   const empty = tracks.length === 0;
+  const wide = useWideLayout();
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex min-h-dvh flex-col bg-background">
       <AppHeader onLogoClick={() => navigate('/dashboard')}>
         <Link to={canvasHref}><Button variant="outline" size="sm">Open canvas</Button></Link>
         <Link to={detailsHref}><Button variant="outline" size="sm">Execution details</Button></Link>
       </AppHeader>
 
-      <main className="mx-auto max-w-[1600px] space-y-4 px-4 py-6 sm:px-6 lg:px-8">
+      <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight">{results.workflowName}</h1>
@@ -509,20 +523,23 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
         </div>
 
         {running && (
-          <div role="status" className="flex flex-wrap items-center gap-3 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm">
+          <div role="status" className="flex flex-wrap items-center gap-3 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm dark:border-violet-500/30 dark:bg-violet-500/10">
             <span>
               Still running · {doneNodes}{totalNodes ? `/${totalNodes}` : ''} nodes done
             </span>
-            <Link to={canvasHref} className="text-primary hover:underline">Open canvas</Link>
+            <Link to={canvasHref} className="text-link hover:underline">Open canvas</Link>
           </div>
         )}
         {largeSession && (
-          <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
             Large session — playback may use a lot of memory.
           </p>
         )}
 
-        <div className="overflow-clip rounded-lg bg-zinc-950 text-zinc-100">
+        <section
+          aria-label="Mixer"
+          className="flex min-h-[440px] flex-1 flex-col overflow-clip rounded-xl border border-daw-border bg-daw-lane text-foreground shadow-sm"
+        >
           <TransportBar
             engine={engine}
             playing={playing}
@@ -537,6 +554,15 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
             onPlayPause={playPause}
             onStop={stop}
             onToStart={toStart}
+            master={
+              <MasterStrip
+                valueDb={mixer.masterDb}
+                onChange={(db) => dispatch({ type: 'setMaster', db })}
+                bus={bus}
+                clipped={clipped}
+                onResetClip={resetClip}
+              />
+            }
           >
             <MetronomeControls
               settings={mixer.metronome}
@@ -575,13 +601,6 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
               onTogglePractice={togglePractice}
               canPractice={readyTracks.length > 0}
             />
-            <MasterStrip
-              valueDb={mixer.masterDb}
-              onChange={(db) => dispatch({ type: 'setMaster', db })}
-              bus={bus}
-              clipped={clipped}
-              onResetClip={resetClip}
-            />
           </TransportBar>
 
           {empty && !running ? (
@@ -594,9 +613,19 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
             />
           ) : (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
-                <div className="hidden bg-zinc-900 px-3 text-xs leading-7 text-zinc-400 md:block">
-                  {anySolo ? 'Solo active' : ' '}
+              <div className="grid grid-cols-1 border-b border-daw-border md:grid-cols-[300px_minmax(0,1fr)]">
+                <div className="hidden items-center justify-between gap-2 border-r border-daw-border bg-daw-surface px-4 text-xs text-muted-foreground md:flex">
+                  <span>{tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}</span>
+                  {anySolo && (
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: 'clearSolo' })}
+                      className="rounded bg-amber-400 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-950 hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      title="Clear all solos (Shift+S)"
+                    >
+                      Solo on · Clear
+                    </button>
+                  )}
                 </div>
                 <div className="px-2">
                   <TimeRuler
@@ -610,52 +639,61 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
                   />
                 </div>
               </div>
-              {tracks.map((t, i) => (
-                <TrackLane
-                  key={t.id}
-                  track={t}
-                  index={i}
-                  engine={engine}
-                  bus={bus}
-                  mix={trackMix(mixer, t.id)}
-                  audible={isAudible(mixer, t.id)}
-                  canvasHref={`${canvasHref}?exec=${executionId}&node=${t.workflowNodeId}`}
-                  onFocusTrack={setFocusedId}
-                  onVolume={(db) => dispatch({ type: 'setVolume', id: t.id, db })}
-                  onMute={() => dispatch({ type: 'toggleMute', id: t.id })}
-                  onSolo={(exclusive) => dispatch({ type: 'toggleSolo', id: t.id, exclusive })}
-                  onDownload={() => {
-                    const ext = t.artifactPath?.split('.').pop() ?? 'mp3';
-                    filesService.download(t.artifactPath!, `${t.displayName}.${ext}`).catch(console.error);
-                  }}
-                  onRemove={() => removeMutation.mutate(t)}
-                  onRetryLoad={() => loadIds([t.id])}
-                />
-              ))}
-              <div className="flex flex-wrap items-center gap-3 border-t border-zinc-800 bg-zinc-900 px-3 py-3">
+              <div className="relative flex flex-1 flex-col">
+                {tracks.map((t, i) => (
+                  <TrackLane
+                    key={t.id}
+                    track={t}
+                    index={i}
+                    engine={engine}
+                    bus={bus}
+                    mix={trackMix(mixer, t.id)}
+                    audible={isAudible(mixer, t.id)}
+                    canvasHref={`${canvasHref}?exec=${executionId}&node=${t.workflowNodeId}`}
+                    sharedPlayhead={wide}
+                    onFocusTrack={setFocusedId}
+                    onVolume={(db) => dispatch({ type: 'setVolume', id: t.id, db })}
+                    onMute={() => dispatch({ type: 'toggleMute', id: t.id })}
+                    onSolo={(exclusive) => dispatch({ type: 'toggleSolo', id: t.id, exclusive })}
+                    onDownload={() => {
+                      const ext = t.artifactPath?.split('.').pop() ?? 'mp3';
+                      filesService.download(t.artifactPath!, `${t.displayName}.${ext}`).catch(console.error);
+                    }}
+                    onRemove={() => removeMutation.mutate(t)}
+                    onRetryLoad={() => loadIds([t.id])}
+                  />
+                ))}
+                {/* Empty arrangement area: the header column continues down to the footer. */}
+                <div aria-hidden="true" className="hidden min-h-12 flex-1 md:grid md:grid-cols-[300px_minmax(0,1fr)]">
+                  <div className="border-r border-daw-border bg-daw-surface" />
+                  <div />
+                </div>
+                {wide && <LanesOverlay engine={engine} duration={duration} loop={loop} anchors={follow ? anchors : []} />}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 border-t border-daw-border bg-daw-surface px-4 py-2.5">
                 <AddTrackPopover available={results.available} onAdd={addStem} disabled={addMutation.isPending} />
-                <span className="text-xs text-zinc-400">
+                <span className="text-xs text-muted-foreground">
                   Edits here apply to this run only. Pin stems on the canvas to keep them by default.
                 </span>
                 <button
                   type="button"
                   onClick={() => setHelp(true)}
-                  className="ml-auto rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+                  className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-daw-control hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  Shortcuts (?)
+                  <Keyboard className="size-4" aria-hidden="true" /> Shortcuts <kbd className="rounded border border-daw-border px-1 font-mono text-[10px]">?</kbd>
                 </button>
               </div>
             </>
           )}
-        </div>
+        </section>
       </main>
 
       {undo && (
-        <div role="status" className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-md bg-zinc-900 px-4 py-2 text-sm text-zinc-100 shadow-lg">
+        <div role="status" className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-md border bg-popover px-4 py-2 text-sm text-popover-foreground shadow-lg">
           <span>Removed {undo.track.displayName}</span>
           <button
             type="button"
-            className="font-medium text-violet-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+            className="font-medium text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => {
               addMutation.mutate({
                 workflowNodeId: undo.track.workflowNodeId,

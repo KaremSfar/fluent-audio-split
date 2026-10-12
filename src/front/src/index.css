@@ -15,37 +15,60 @@
     --secondary: 240 4.8% 95.9%;
     --secondary-foreground: 240 5.9% 10%;
     --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
+    --muted-foreground: 240 3.8% 42%;
     --accent: 240 4.8% 95.9%;
     --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
     --ring: 262.1 83.3% 57.8%;
     --radius: 0.75rem;
+    --link: 262 83% 52%;
+
+    /* Results DAW ("studio") surfaces: light studio here, refined dark in .dark. */
+    --daw-surface: 240 6% 97.5%;
+    --daw-lane: 0 0% 100%;
+    --daw-control: 240 5% 93%;
+    --daw-control-hover: 240 5% 88%;
+    --daw-border: 240 6% 89%;
+    --daw-playhead: 240 10% 12%;
+    --daw-bar: 262 70% 55%;
+    --daw-beat: 240 5% 70%;
+    --daw-meter: 240 5% 89%;
   }
 
   .dark {
-    --background: 20 14.3% 4.1%;
+    --background: 240 8% 5%;
     --foreground: 0 0% 95%;
-    --card: 24 9.8% 10%;
+    --card: 240 6% 8.5%;
     --card-foreground: 0 0% 95%;
-    --popover: 0 0% 9%;
+    --popover: 240 6% 9%;
     --popover-foreground: 0 0% 95%;
     --primary: 262.1 83.3% 57.8%;
     --primary-foreground: 210 20% 98%;
-    --secondary: 240 3.7% 15.9%;
+    --secondary: 240 5% 15%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 15%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 12 6.5% 15.1%;
+    --muted: 240 5% 14%;
+    --muted-foreground: 240 5% 66%;
+    --accent: 240 5% 16%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 85.7% 97.3%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 262.1 83.3% 57.8%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 5% 17%;
+    --input: 240 5% 21%;
+    --ring: 262 83% 68%;
+    --link: 255 92% 76%;
+
+    --daw-surface: 240 6% 9.5%;
+    --daw-lane: 240 8% 6%;
+    --daw-control: 240 5% 16%;
+    --daw-control-hover: 240 5% 22%;
+    --daw-border: 240 5% 17%;
+    --daw-playhead: 0 0% 98%;
+    --daw-bar: 258 90% 76%;
+    --daw-beat: 240 5% 42%;
+    --daw-meter: 240 5% 19%;
   }
 }
 
@@ -65,4 +88,95 @@
 }
 .animate-pulse-subtle {
   animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+/* React Flow follows the theme tokens (canvas, dots, minimap, controls). */
+.react-flow {
+  --xy-background-color: hsl(var(--background));
+  --xy-background-pattern-dots-color: hsl(var(--muted-foreground) / 0.35);
+  --xy-minimap-background-color: hsl(var(--card));
+  --xy-minimap-mask-background-color: hsl(var(--muted) / 0.7);
+  --xy-minimap-mask-stroke-color: hsl(var(--border));
+  --xy-controls-button-background-color: hsl(var(--card));
+  --xy-controls-button-background-color-hover: hsl(var(--accent));
+  --xy-controls-button-color: hsl(var(--foreground));
+  --xy-controls-button-color-hover: hsl(var(--foreground));
+  --xy-controls-button-border-color: hsl(var(--border));
+  --xy-edge-label-background-color: hsl(var(--card));
+  --xy-edge-label-color: hsl(var(--foreground));
+}
+.react-flow__minimap,
+.react-flow__controls {
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+/* DAW fader: thin token-coloured track, filled up to the value (`--fill`), round thumb. */
+@layer components {
+  .daw-range {
+    --fill: 50%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 20px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .daw-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(
+      to right,
+      hsl(var(--primary)) 0 var(--fill),
+      hsl(var(--daw-control-hover)) var(--fill) 100%
+    );
+  }
+  .daw-range::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: hsl(var(--daw-control-hover));
+  }
+  .daw-range::-moz-range-progress {
+    height: 4px;
+    border-radius: 9999px;
+    background: hsl(var(--primary));
+  }
+  .daw-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: 9999px;
+    background: hsl(var(--daw-lane));
+    border: 2px solid hsl(var(--primary));
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+    transition: transform 120ms;
+  }
+  .daw-range::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border-radius: 9999px;
+    background: hsl(var(--daw-lane));
+    border: 2px solid hsl(var(--primary));
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  }
+  .daw-range:hover::-webkit-slider-thumb,
+  .daw-range:focus-visible::-webkit-slider-thumb {
+    transform: scale(1.15);
+  }
+  .daw-range:focus-visible {
+    outline: none;
+  }
+  .daw-range:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.45);
+  }
+  .daw-range:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.45);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .daw-range::-webkit-slider-thumb {
+      transition: none;
+    }
+  }
 }

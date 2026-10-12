@@ -4,6 +4,8 @@ import type { LoopRegion, StemSyncEngine } from '@/components/execution/stemSync
 import { barBeatAt, bpmAt, type BeatGrid } from './beatGrid';
 import type { MetronomeSettings } from './metronome';
 import { formatClock, prefersReducedMotion, useTransportPos } from './useTransportPos';
+import { Divider } from './Divider';
+import { caption, ctl, ctlIcon, dawFocus, neutral } from './ui';
 
 interface TransportBarProps {
   engine: StemSyncEngine;
@@ -20,14 +22,11 @@ interface TransportBarProps {
   onPlayPause: () => void;
   onStop: () => void;
   onToStart: () => void;
-  /** Metronome and master controls. */
+  /** Master section (right end of the main row). */
+  master: React.ReactNode;
+  /** Metronome controls (second row). */
   children: React.ReactNode;
 }
-
-const btn =
-  'inline-flex size-10 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900';
-const small =
-  'inline-flex h-7 items-center gap-1 rounded px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400';
 
 /** Sticky transport: shared play/stop/seek, clock, bar·beat readout, loop, then the metronome/master controls. */
 export function TransportBar({
@@ -44,6 +43,7 @@ export function TransportBar({
   onPlayPause,
   onStop,
   onToStart,
+  master,
   children,
 }: TransportBarProps) {
   const pos = useTransportPos(engine);
@@ -54,47 +54,99 @@ export function TransportBar({
   const follow = metronome.mode === 'follow';
 
   return (
-    <div className="sticky top-0 z-20 flex flex-wrap items-start gap-x-6 gap-y-3 border-b border-zinc-800 bg-zinc-900 px-3 py-3 text-zinc-100">
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={onToStart} className={cn(btn, 'bg-zinc-800 hover:bg-zinc-700')} aria-label="Return to start" title="Return to start (Enter / Home)">
+    <div className="sticky top-0 z-20 border-b border-daw-border bg-daw-surface">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
+        {/* Transport */}
+        <div className="flex items-center gap-1.5" role="group" aria-label="Transport">
+          <button type="button" onClick={onToStart} className={cn(ctlIcon, 'size-9', neutral)} aria-label="Return to start" title="Return to start (Enter / Home)">
             <SkipBack className="size-4" />
           </button>
           <button
             type="button"
             onClick={onPlayPause}
-            className={cn(btn, 'bg-violet-500 text-white hover:bg-violet-600')}
+            className={cn(
+              'inline-flex size-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90',
+              dawFocus,
+            )}
             aria-label={playing ? 'Pause' : 'Play'}
             title={playing ? 'Pause (Space)' : 'Play (Space)'}
           >
-            {loading && !playing ? <Loader2 className="size-4 animate-spin" /> : playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+            {loading && !playing ? (
+              <Loader2 className="size-5 animate-spin" />
+            ) : playing ? (
+              <Pause className="size-5" fill="currentColor" />
+            ) : (
+              <Play className="ml-0.5 size-5" fill="currentColor" />
+            )}
           </button>
-          <button type="button" onClick={onStop} className={cn(btn, 'bg-zinc-800 hover:bg-zinc-700')} aria-label="Stop" title="Stop">
-            <Square className="size-4" />
+          <button type="button" onClick={onStop} className={cn(ctlIcon, 'size-9', neutral)} aria-label="Stop" title="Stop">
+            <Square className="size-3.5" fill="currentColor" />
           </button>
         </div>
-        <div className="flex items-center gap-1" role="group" aria-label="Loop">
-          <button
-            type="button"
-            onClick={() => onLoopBars(1)}
-            className={cn(small, 'bg-zinc-800 hover:bg-zinc-700')}
-            title="Loop the bar at the playhead (L)"
-          >
-            <Repeat className="size-3" aria-hidden="true" /> Bar
+
+        {/* Clock + bar/beat */}
+        <div className="flex min-w-[190px] flex-col justify-center">
+          <p className="font-mono text-xl font-medium leading-tight tabular-nums text-foreground" aria-label="Playback position">
+            {formatClock(pos)} <span className="text-sm font-normal text-muted-foreground">/ {formatClock(duration)}</span>
+          </p>
+          <div className="flex h-4 items-center gap-2 text-xs text-muted-foreground">
+            <span className="tabular-nums" aria-hidden={!metronome.enabled}>
+              {metronome.enabled ? `Bar ${bar} · ${beat}` : 'Click off'}
+            </span>
+            {metronome.enabled && (
+              <span className={cn('flex gap-1', hideBeat && 'opacity-30')} aria-hidden="true">
+                {Array.from({ length: metronome.beatsPerBar }, (_, i) => {
+                  const level = metronome.accents[i] ?? (i === 0 ? 2 : 1);
+                  const lit = dots === i + 1;
+                  return (
+                    <span
+                      key={i}
+                      className={cn(
+                        'size-2 rounded-full',
+                        level === 0
+                          ? cn('border', lit ? 'border-foreground' : 'border-muted-foreground/50')
+                          : lit
+                            ? level === 2
+                              ? 'bg-primary dark:bg-daw-bar'
+                              : 'bg-foreground'
+                            : level === 2
+                              ? 'bg-primary/30 dark:bg-daw-bar/30'
+                              : 'bg-daw-control-hover',
+                      )}
+                    />
+                  );
+                })}
+              </span>
+            )}
+            {silent && (
+              <span className="rounded bg-amber-100 px-1 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                Gap
+              </span>
+            )}
+            {metronome.enabled && follow && (
+              <span className="tabular-nums" title="Tempo at the playhead (follows the song)">≈{bpmAt(grid, Math.max(0, pos)).toFixed(1)} BPM</span>
+            )}
+          </div>
+        </div>
+
+        <Divider />
+
+        {/* Loop */}
+        <div className="flex items-center gap-1.5" role="group" aria-label="Loop">
+          <span className={cn(caption, 'mr-0.5 flex items-center gap-1')}>
+            <Repeat className="size-3.5" aria-hidden="true" /> Loop
+          </span>
+          <button type="button" onClick={() => onLoopBars(1)} className={cn(ctl, neutral)} title="Loop the bar at the playhead (L)">
+            1 bar
           </button>
-          <button
-            type="button"
-            onClick={() => onLoopBars(4)}
-            className={cn(small, 'bg-zinc-800 hover:bg-zinc-700')}
-            title="Loop 4 bars from the bar at the playhead (Shift+L)"
-          >
+          <button type="button" onClick={() => onLoopBars(4)} className={cn(ctl, neutral)} title="Loop 4 bars from the bar at the playhead (Shift+L)">
             4 bars
           </button>
           {loop && (
             <button
               type="button"
               onClick={onClearLoop}
-              className={cn(small, 'bg-violet-500/30 text-violet-100 hover:bg-violet-500/50')}
+              className={cn(ctl, 'bg-primary/15 font-mono tabular-nums text-foreground ring-1 ring-inset ring-primary/40 hover:bg-primary/25')}
               aria-label={`Loop on, ${formatClock(loop.start)} to ${formatClock(loop.end)}. Turn loop off`}
               title="Loop off (L)"
             >
@@ -102,42 +154,11 @@ export function TransportBar({
             </button>
           )}
         </div>
+
+        <div className="flex flex-1 justify-end">{master}</div>
       </div>
 
-      <div className="flex flex-col justify-center">
-        <p className="font-mono text-lg tabular-nums" aria-label="Playback position">
-          {formatClock(pos)} <span className="text-sm text-zinc-400">/ {formatClock(duration)}</span>
-        </p>
-        <div className="flex items-center gap-2 text-xs text-zinc-400">
-          <span className="tabular-nums" aria-hidden={!metronome.enabled}>
-            {metronome.enabled ? `Bar ${bar} · ${beat}` : 'Click off'}
-          </span>
-          {metronome.enabled && (
-            <span className={cn('flex gap-1', hideBeat && 'opacity-30')} aria-hidden="true">
-              {Array.from({ length: metronome.beatsPerBar }, (_, i) => {
-                const level = metronome.accents[i] ?? (i === 0 ? 2 : 1);
-                const lit = dots === i + 1;
-                return (
-                  <span
-                    key={i}
-                    className={cn(
-                      'size-1.5 rounded-full',
-                      level === 0 ? 'border border-zinc-600' : lit ? (level === 2 ? 'bg-violet-300' : 'bg-zinc-200') : level === 2 ? 'bg-violet-900' : 'bg-zinc-700',
-                      lit && level === 0 && 'border-zinc-300',
-                    )}
-                  />
-                );
-              })}
-            </span>
-          )}
-          {silent && <span className="rounded bg-zinc-800 px-1 text-[10px] uppercase tracking-wide text-amber-300">Gap</span>}
-          {metronome.enabled && follow && (
-            <span className="tabular-nums" title="Tempo at the playhead (follows the song)">≈{bpmAt(grid, Math.max(0, pos)).toFixed(1)} BPM</span>
-          )}
-        </div>
-      </div>
-
-      {children}
+      <div className="border-t border-daw-border px-4 py-2.5">{children}</div>
     </div>
   );
 }

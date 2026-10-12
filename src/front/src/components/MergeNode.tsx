@@ -22,7 +22,7 @@ const handleStyle = (filled: boolean) => ({
   left: -6,
   top: '50%',
   transform: 'translateY(-50%)',
-  background: filled ? MERGE_COLOR : 'white',
+  background: filled ? MERGE_COLOR : 'hsl(var(--card))',
   border: `2px solid ${MERGE_COLOR}`,
   width: 12,
   height: 12,
@@ -54,7 +54,7 @@ function MergeNode({ data, selected }: NodeProps) {
   const baseBorder = execStatus
     ? execBorderClass[execStatus] ?? 'border-teal-500'
     : selected
-      ? 'border-teal-700 ring-2 ring-teal-300'
+      ? 'border-teal-700 ring-2 ring-teal-300 dark:border-teal-400 dark:ring-teal-500/50'
       : invalid
         ? 'border-amber-400 border-dashed'
         : 'border-teal-500';
@@ -65,11 +65,11 @@ function MergeNode({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`w-64 rounded-xl border-2 ${baseBorder} bg-background shadow-lg transition-all ${execStatus === 'Running' ? 'animate-pulse-subtle' : ''}`}
+      className={`w-64 rounded-xl border-2 ${baseBorder} bg-card text-card-foreground shadow-lg dark:shadow-black/40 transition-all ${execStatus === 'Running' ? 'animate-pulse-subtle' : ''}`}
       style={{ position: 'relative' }}
     >
       {/* Header */}
-      <div className="bg-teal-600 text-white rounded-t-xl px-3 py-2 flex items-center gap-2">
+      <div className="bg-teal-700 text-white rounded-t-[10px] px-3 py-2 flex items-center gap-2">
         <span className="text-base" aria-hidden="true">⧉</span>
         <span className="font-semibold text-xs flex-1 truncate">Merge · Node {nodeIndex + 1}</span>
         {showPlay && (
@@ -109,7 +109,7 @@ function MergeNode({ data, selected }: NodeProps) {
                     type="button"
                     aria-label={`Remove input ${input.label}`}
                     title="Remove input"
-                    className="nodrag nopan text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-red-500"
+                    className="nodrag nopan text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-red-500 dark:hover:text-red-400"
                     onClick={(e) => { e.stopPropagation(); onRemoveInput(nodeId, i); }}
                   >
                     ✕
@@ -126,7 +126,7 @@ function MergeNode({ data, selected }: NodeProps) {
       {/* Single output */}
       <div className="border-t border-border/50 pt-2 pb-2">
         <div className="group relative flex items-center gap-2 px-3 py-1">
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full text-white bg-teal-600 truncate max-w-[110px]" title={outputLabel}>
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full text-white bg-teal-700 truncate max-w-[110px]" title={outputLabel}>
             {outputLabel}
           </span>
           <span className="ml-auto">
@@ -142,7 +142,7 @@ function MergeNode({ data, selected }: NodeProps) {
               right: -6,
               top: '50%',
               transform: 'translateY(-50%)',
-              background: 'white',
+              background: 'hsl(var(--card))',
               border: `2px solid ${MERGE_COLOR}`,
               boxShadow: keepState === 'kept' ? `0 0 0 3px ${KEEP_COLOR}` : undefined,
               width: 12,
@@ -154,13 +154,13 @@ function MergeNode({ data, selected }: NodeProps) {
       </div>
 
       {invalid && (
-        <div className="border-t border-amber-300 px-3 py-1">
-          <p className="text-[10px] text-amber-700">Needs at least {MIN_MERGE_INPUTS} stems</p>
+        <div className="border-t border-amber-300 dark:border-amber-700/70 px-3 py-1">
+          <p className="text-[10px] text-amber-700 dark:text-amber-300">Needs at least {MIN_MERGE_INPUTS} stems</p>
         </div>
       )}
       {!invalid && issues && issues.length > 0 && (
-        <div className="border-t border-amber-300 px-3 py-1" title={issues.join('\n')}>
-          <p className="text-[10px] text-amber-700 truncate">⚠ {issues[0]}</p>
+        <div className="border-t border-amber-300 dark:border-amber-700/70 px-3 py-1" title={issues.join('\n')}>
+          <p className="text-[10px] text-amber-700 dark:text-amber-300 truncate">⚠ {issues[0]}</p>
         </div>
       )}
 

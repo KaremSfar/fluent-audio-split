@@ -20,6 +20,7 @@ export default {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+        link: "hsl(var(--link))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         primary: {
@@ -49,6 +50,17 @@ export default {
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
+        },
+        daw: {
+          surface: "hsl(var(--daw-surface))",
+          lane: "hsl(var(--daw-lane))",
+          control: "hsl(var(--daw-control))",
+          "control-hover": "hsl(var(--daw-control-hover))",
+          border: "hsl(var(--daw-border))",
+          playhead: "hsl(var(--daw-playhead))",
+          bar: "hsl(var(--daw-bar))",
+          beat: "hsl(var(--daw-beat))",
+          meter: "hsl(var(--daw-meter))",
         },
       },
       borderRadius: {

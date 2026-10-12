@@ -2,12 +2,12 @@ import { useNowTick } from '@/hooks/useNowTick';
 import type { NodeExecOverlay } from './nodeData';
 
 const statusFooter: Record<string, { icon: string; label: string; color: string }> = {
-  Pending: { icon: '○', label: 'Pending', color: 'text-slate-400' },
-  Queued: { icon: '○', label: 'Queued', color: 'text-slate-400' },
-  Running: { icon: '⏳', label: 'Running', color: 'text-blue-600' },
-  Completed: { icon: '✅', label: 'Done', color: 'text-green-600' },
-  Failed: { icon: '✗', label: 'Failed', color: 'text-red-600' },
-  Cancelled: { icon: '—', label: 'Cancelled', color: 'text-slate-500' },
+  Pending: { icon: '○', label: 'Pending', color: 'text-muted-foreground' },
+  Queued: { icon: '○', label: 'Queued', color: 'text-muted-foreground' },
+  Running: { icon: '⏳', label: 'Running', color: 'text-blue-600 dark:text-blue-400' },
+  Completed: { icon: '✅', label: 'Done', color: 'text-green-600 dark:text-green-400' },
+  Failed: { icon: '✗', label: 'Failed', color: 'text-red-600 dark:text-red-400' },
+  Cancelled: { icon: '—', label: 'Cancelled', color: 'text-muted-foreground' },
 };
 
 /** Execution status footer + failure snippet, shared by Split and Merge cards. */
@@ -34,7 +34,7 @@ export function NodeExecFooter({ execStatus, execStartedAt, execCompletedAt, exe
       </div>
       {execStatus === 'Failed' && execErrorMessage && (
         <div className="px-3 pb-2">
-          <p className="text-[9px] text-red-500 truncate" title={execErrorMessage}>{execErrorMessage}</p>
+          <p className="text-[9px] text-red-500 dark:text-red-400 truncate" title={execErrorMessage}>{execErrorMessage}</p>
         </div>
       )}
     </>

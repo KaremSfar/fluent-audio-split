@@ -46,7 +46,7 @@ export function AddNodeMenu({ onAdd, disabled, disabledTitle }: AddNodeMenuProps
         + Add Node ▾
       </Button>
       {open && (
-        <div role="menu" className="absolute right-0 mt-1 w-56 rounded-md border bg-background shadow-lg z-50 py-1">
+        <div role="menu" className="absolute right-0 mt-1 w-56 rounded-md border bg-popover text-popover-foreground shadow-lg z-50 py-1">
           <button
             role="menuitem"
             className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center justify-between"

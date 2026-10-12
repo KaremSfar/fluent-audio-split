@@ -15,7 +15,7 @@ export function ValidationPill({ issues, onSelectNode }: ValidationPillProps) {
       onClick={() => onSelectNode(issues[0].nodeId)}
       title={text}
       aria-label={`${issues.length} workflow ${issues.length === 1 ? 'issue' : 'issues'}: ${text}`}
-      className="shrink-0 text-xs font-medium rounded-full border border-amber-300 bg-amber-50 text-amber-800 px-2.5 py-1 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+      className="shrink-0 text-xs font-medium rounded-full border border-amber-300 dark:border-amber-700/70 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 px-2.5 py-1 hover:bg-amber-100 dark:hover:bg-amber-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
     >
       ⚠ {issues.length} {issues.length === 1 ? 'issue' : 'issues'}
     </button>

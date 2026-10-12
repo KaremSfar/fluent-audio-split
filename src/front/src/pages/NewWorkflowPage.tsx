@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/auth/useAuth';
 import { workflowsService } from '@/services/workflowsService';
+import { AppHeader } from '@/components/layout/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -43,15 +44,9 @@ export default function NewWorkflowPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <header className="border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 hover:opacity-80">
-            <span className="text-xl">🎵</span>
-            <span className="font-semibold">Fluent Audio Split</span>
-          </button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/dashboard')}>← Dashboard</Button>
-        </div>
-      </header>
+      <AppHeader onLogoClick={() => navigate('/dashboard')}>
+        <Button variant="outline" size="sm" onClick={() => navigate('/dashboard')}>← Dashboard</Button>
+      </AppHeader>
 
       <main className="flex-1 flex items-center justify-center px-4">
         <Card className="w-full max-w-md">
@@ -80,7 +75,7 @@ export default function NewWorkflowPage() {
                 />
 
                 {createMutation.isError && (
-                  <p className="text-sm text-red-600">{(createMutation.error as Error).message}</p>
+                  <p className="text-sm text-red-600 dark:text-red-400">{(createMutation.error as Error).message}</p>
                 )}
 
                 <Button type="submit" className="w-full" disabled={createMutation.isPending}>

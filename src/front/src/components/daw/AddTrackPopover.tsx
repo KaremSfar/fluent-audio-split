@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import type { AvailableStem } from '@/types/results';
+import { cn } from '@/lib/utils';
+import { ctl, neutral } from './ui';
 
 interface AddTrackPopoverProps {
   available: AvailableStem[];
@@ -49,15 +51,15 @@ export function AddTrackPopover({ available, onAdd, disabled }: AddTrackPopoverP
         disabled={disabled || available.length === 0}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex h-9 items-center gap-1 rounded-md bg-zinc-800 px-3 text-sm text-zinc-100 hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:opacity-50"
+        className={cn(ctl, neutral, 'pl-2')}
       >
-        <Plus className="size-4" /> Add track
+        <Plus className="size-4" aria-hidden="true" /> Add track
       </button>
       {open && (
-        <div role="menu" className="absolute bottom-full left-0 z-30 mb-1 max-h-72 w-64 overflow-auto rounded-md border border-zinc-700 bg-zinc-900 py-1 text-sm text-zinc-100 shadow-lg">
+        <div role="menu" className="absolute bottom-full left-0 z-30 mb-1 max-h-72 w-64 overflow-auto rounded-md border bg-popover py-1 text-sm text-popover-foreground shadow-lg">
           {[...groups.entries()].map(([node, stems]) => (
             <div key={node}>
-              <p className="px-3 pt-2 text-xs font-medium uppercase tracking-wide text-zinc-400">{node}</p>
+              <p className="px-3 pb-0.5 pt-2 text-xs font-medium text-muted-foreground">{node}</p>
               {stems.map((s) => (
                 <button
                   key={`${s.workflowNodeId}:${s.outputName}`}
@@ -67,7 +69,7 @@ export function AddTrackPopover({ available, onAdd, disabled }: AddTrackPopoverP
                     onAdd(s);
                     setOpen(false);
                   }}
-                  className="block w-full px-3 py-1.5 text-left hover:bg-zinc-800 focus-visible:bg-zinc-800 focus-visible:outline-none"
+                  className="block w-full px-3 py-1.5 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
                 >
                   {s.displayName}
                 </button>

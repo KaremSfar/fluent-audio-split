@@ -40,10 +40,10 @@ export interface MergeNodeData extends BaseNodeData {
 }
 
 export const execBorderClass: Record<string, string> = {
-  Pending: 'border-slate-300',
-  Queued: 'border-slate-300',
-  Running: 'border-blue-500 ring-2 ring-blue-300',
+  Pending: 'border-slate-300 dark:border-zinc-600',
+  Queued: 'border-slate-300 dark:border-zinc-600',
+  Running: 'border-blue-500 ring-2 ring-blue-300 dark:ring-blue-500/40',
   Completed: 'border-green-500',
   Failed: 'border-red-500',
-  Cancelled: 'border-slate-400',
+  Cancelled: 'border-slate-400 dark:border-zinc-500',
 };

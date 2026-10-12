@@ -10,6 +10,7 @@ interface VolumeFaderProps {
 }
 
 const SNAP_DB = 0.15;
+const ZERO_POS = dbToFaderPos(0);
 
 function stepDb(current: number, delta: number): number {
   if (current === -Infinity) return delta > 0 ? -60 : -Infinity;
@@ -55,33 +56,43 @@ export function VolumeFader({ label, valueDb, onChange, showReadout = true, clas
     }
   };
 
+  const pos = dbToFaderPos(valueDb);
   return (
     <div className={cn('flex items-center gap-2', className)}>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.001}
-        value={dbToFaderPos(valueDb)}
-        aria-label={label}
-        aria-valuetext={dbValueText(valueDb)}
-        title={`${formatDb(valueDb)} (double-click or Alt+click to reset)`}
-        onChange={(e) => {
-          const db = faderPosToDb(Number(e.target.value));
-          onChange(Math.abs(db) < SNAP_DB ? 0 : db);
-        }}
-        onKeyDown={onKeyDown}
-        onDoubleClick={() => onChange(0)}
-        onPointerDown={(e) => {
-          if (e.altKey) {
-            e.preventDefault();
-            onChange(0);
-          }
-        }}
-        className="h-5 min-w-0 flex-1 cursor-pointer accent-violet-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
-      />
+      <div className="relative flex min-w-0 flex-1 items-center">
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.001}
+          value={pos}
+          aria-label={label}
+          aria-valuetext={dbValueText(valueDb)}
+          title={`${formatDb(valueDb)} (double-click or Alt+click to reset)`}
+          onChange={(e) => {
+            const db = faderPosToDb(Number(e.target.value));
+            onChange(Math.abs(db) < SNAP_DB ? 0 : db);
+          }}
+          onKeyDown={onKeyDown}
+          onDoubleClick={() => onChange(0)}
+          onPointerDown={(e) => {
+            if (e.altKey) {
+              e.preventDefault();
+              onChange(0);
+            }
+          }}
+          style={{ '--fill': `calc(7px + ${pos} * (100% - 14px))` } as React.CSSProperties}
+          className="daw-range relative min-w-0 flex-1"
+        />
+        {/* 0 dB detent mark (thumb is 14 px, so the travel is inset by 7 px each side). */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute top-[calc(50%+5px)] h-1.5 w-px bg-muted-foreground/60"
+          style={{ left: `calc(7px + ${ZERO_POS} * (100% - 14px))` }}
+        />
+      </div>
       {showReadout && (
-        <span aria-hidden="true" className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-zinc-300">
+        <span aria-hidden="true" className="w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
           {formatDb(valueDb)}
         </span>
       )}

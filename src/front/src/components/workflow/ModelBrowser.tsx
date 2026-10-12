@@ -90,7 +90,7 @@ export function ModelBrowser({ selectedModel, onSelectModel, onOpenAdvanced }: M
             onClick={() => { setArchFilter(f.value); setCategoryFilter('all'); }}
             className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
               archFilter === f.value
-                ? 'bg-violet-500 border-violet-500 text-white'
+                ? 'bg-violet-600 border-violet-600 text-white'
                 : 'border-border text-muted-foreground hover:border-violet-400 hover:text-foreground'
             }`}
           >

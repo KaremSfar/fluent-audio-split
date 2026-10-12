@@ -174,7 +174,7 @@ export function ExecutionDrawer({
                 <span className="font-medium">
                   {node.nodeLabel ?? (wfNode ? `Node ${wfNode.order + 1}` : 'Node')}
                 </span>
-                {isMerge && <span className="ml-1.5 text-xs text-teal-700">(Merge)</span>}
+                {isMerge && <span className="ml-1.5 text-xs text-teal-700 dark:text-teal-300">(Merge)</span>}
                 {modelName && (
                   <span className="ml-1.5 text-xs text-muted-foreground">({modelName})</span>
                 )}
@@ -199,7 +199,7 @@ export function ExecutionDrawer({
               <div className="flex-1 flex items-center justify-end gap-2">
                 {/* Error message */}
                 {node.errorMessage && (
-                  <span className="text-[10px] text-red-500 truncate max-w-[200px]" title={node.errorMessage}>
+                  <span className="text-[10px] text-red-500 dark:text-red-400 truncate max-w-[200px]" title={node.errorMessage}>
                     {node.errorMessage}
                   </span>
                 )}
