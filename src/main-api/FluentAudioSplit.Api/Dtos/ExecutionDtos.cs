@@ -13,7 +13,8 @@ public record NodeExecutionDto(
     // Resolved from the version the execution was pinned to, so the UI shows a stable label even
     // after the workflow is edited (which mints new node ids in a new version).
     string? NodeLabel,
-    string? ModelName);
+    string? ModelName,
+    string NodeType);
 
 public record WorkflowExecutionDto(
     Guid Id,

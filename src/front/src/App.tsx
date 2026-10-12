@@ -11,6 +11,7 @@ const NewWorkflowPage = lazy(() => import('@/pages/NewWorkflowPage'));
 const WorkflowCanvasPage = lazy(() => import('@/pages/WorkflowCanvasPage'));
 const ExecutionsListPage = lazy(() => import('@/pages/ExecutionsListPage'));
 const ExecutionPage = lazy(() => import('@/pages/ExecutionPage'));
+const ResultsPage = lazy(() => import('@/pages/ResultsPage'));
 
 const queryClient = new QueryClient();
 
@@ -35,6 +36,7 @@ export default function App() {
               <Route path="/workflows/:id" element={<WorkflowCanvasPage />} />
               <Route path="/executions" element={<ExecutionsListPage />} />
               <Route path="/executions/:id" element={<ExecutionPage />} />
+              <Route path="/executions/:id/results" element={<ResultsPage />} />
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Suspense>

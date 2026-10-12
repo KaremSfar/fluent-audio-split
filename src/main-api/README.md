@@ -66,12 +66,17 @@ flowchart TD
 **Important design notes**
 
 - **Lazy node creation.** Only root `NodeExecution` rows are created at execute time. Downstream rows are created
-  by `NodeCompletedConsumer` when their parent completes (matching `nodeDef.SourceNodeId == completedWorkflowNodeId`).
-  Each gets a fresh `Guid` id.
+  by `NodeCompletedConsumer` when a parent completes (`WorkflowGraph.Dependents`), **once every input of the dependent
+  is available** (Merge join). All rows/commands are built by `Services/NodeDispatcher`. A dependent whose named upstream
+  output was not produced is recorded `Failed` (there is no first-output fallback). Concurrent parent completions are made
+  safe by the unique index `(WorkflowExecutionId, WorkflowNodeId, Attempt)`.
+- **Graph model.** Nodes have `inputs[]` + `keptOutputs[]` (`AudioSeparation` 0–1 inputs, `Merge` 2–8 inputs → output `"Mix"`).
+  `WorkflowGraph.Validate` (V1–V9) runs on save and execute (400 `ValidationProblemDetails`).
+- **Results.** `ResultTrack` rows (Kept/Default/Manual) back `GET /api/executions/{id}/results`; see `ResultTrackService`.
 - **Completion check** is by **distinct `WorkflowNodeId`** (`allNodeIds.All(completedNodeIds.Contains)`), so retry
   attempts (multiple `NodeExecution` rows per node) don't break it.
 - **Idempotency:** `NodeCompletedConsumer` early-returns if the node is already `Completed` (guards against
-  at-least-once redelivery re-spawning downstream work). No inbox/outbox or DB uniqueness beyond this.
+  at-least-once redelivery re-spawning downstream work); the dispatcher also skips if a row already exists. No inbox/outbox.
 - **Retry** (`ExecutionsController.RetryNode`) only works on a `Failed` node; it inserts a **new** `NodeExecution`
   (`Attempt+1`, `Queued`) and re-sends `ProcessNodeCommand` against the **pinned** version's node def.
 

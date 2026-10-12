@@ -44,8 +44,7 @@ public static class ExecutionReconciler
                 or NodeExecutionStatus.Running);
         if (inFlight) return null;
 
-        var nodeDefs = JsonSerializer.Deserialize<List<WorkflowNodeDefinition>>(
-            exec.WorkflowVersion.StructureJson) ?? new();
+        var nodeDefs = WorkflowJson.DeserializeNodes(exec.WorkflowVersion.StructureJson);
         var allNodeIds = nodeDefs.Select(n => n.Id).ToHashSet();
 
         // Latest attempt per workflow node decides that node's outcome (a retry supersedes a

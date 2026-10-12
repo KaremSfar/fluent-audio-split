@@ -3,4 +3,5 @@
 
   <Project Path="FluentAudioSplit.Domain/FluentAudioSplit.Domain.csproj" />
   <Project Path="FluentAudioSplit.Infrastructure/FluentAudioSplit.Infrastructure.csproj" />
+  <Project Path="FluentAudioSplit.Tests/FluentAudioSplit.Tests.csproj" />
 </Solution>

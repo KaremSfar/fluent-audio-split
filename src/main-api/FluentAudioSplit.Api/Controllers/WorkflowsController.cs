@@ -19,32 +19,54 @@ namespace FluentAudioSplit.Api.Controllers;
 public class WorkflowsController : ControllerBase
 {
     private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
-    private readonly ISendEndpointProvider _sendEndpoint;
+    private readonly NodeDispatcher _dispatcher;
+    private readonly ResultTrackService _results;
     private readonly ILogger<WorkflowsController> _logger;
 
     public WorkflowsController(
         IDbContextFactory<ApplicationDbContext> dbFactory,
-        ISendEndpointProvider sendEndpoint,
+        NodeDispatcher dispatcher,
+        ResultTrackService results,
         ILogger<WorkflowsController> logger)
     {
         _dbFactory = dbFactory;
-        _sendEndpoint = sendEndpoint;
+        _dispatcher = dispatcher;
+        _results = results;
         _logger = logger;
     }
+
+    private ActionResult InvalidWorkflow(IReadOnlyList<string> errors) =>
+        ValidationProblem(new ValidationProblemDetails(new Dictionary<string, string[]>
+        {
+            ["nodes"] = errors.ToArray()
+        })
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Title = "The workflow is invalid.",
+        });
+
+    private static WorkflowNodeDefinition ToDefinition(Guid? id, int order, string nodeType, string configJson,
+        List<NodeInputDto>? inputs, List<string>? keptOutputs) => new()
+    {
+        // Client-supplied ids are kept as given: inputs reference them, so they must not change.
+        Id = id ?? Guid.NewGuid(),
+        Order = order,
+        NodeType = nodeType,
+        ConfigJson = string.IsNullOrWhiteSpace(configJson) ? "{}" : configJson,
+        Inputs = (inputs ?? new()).Select(i => new NodeInputDefinition(i.SourceNodeId, i.SourceOutputName)).ToList(),
+        KeptOutputs = (keptOutputs ?? new()).Distinct().ToList(),
+    };
 
     [HttpPost]
     public async Task<ActionResult<WorkflowDto>> Create([FromBody] CreateWorkflowRequest request, CancellationToken ct)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
-        var nodeDefs = request.Nodes.Select(n => new WorkflowNodeDefinition
-        {
-            Order = n.Order,
-            NodeType = n.NodeType,
-            ConfigJson = n.ConfigJson,
-            SourceNodeId = n.SourceNodeId,
-            SourceOutputName = n.SourceOutputName
-        }).ToList();
+        var nodeDefs = request.Nodes
+            .Select(n => ToDefinition(n.Id, n.Order, n.NodeType, n.ConfigJson, n.Inputs, n.KeptOutputs)).ToList();
+
+        var errors = WorkflowGraph.Validate(nodeDefs);
+        if (errors.Count > 0) return InvalidWorkflow(errors);
 
         var workflow = new Workflow
         {
@@ -56,7 +78,7 @@ public class WorkflowsController : ControllerBase
         {
             WorkflowId = workflow.Id,
             VersionNumber = 1,
-            StructureJson = JsonSerializer.Serialize(nodeDefs),
+            StructureJson = WorkflowJson.Serialize(nodeDefs),
         };
 
         workflow.Versions.Add(version);
@@ -122,21 +144,17 @@ public class WorkflowsController : ControllerBase
 
         var maxVersion = workflow.Versions.Max(v => v.VersionNumber);
 
-        var nodeDefs = request.Nodes.Select(n => new WorkflowNodeDefinition
-        {
-            Id = n.Id ?? Guid.NewGuid(),
-            Order = n.Order,
-            NodeType = n.NodeType,
-            ConfigJson = n.ConfigJson,
-            SourceNodeId = n.SourceNodeId,
-            SourceOutputName = n.SourceOutputName
-        }).ToList();
+        var nodeDefs = request.Nodes
+            .Select(n => ToDefinition(n.Id, n.Order, n.NodeType, n.ConfigJson, n.Inputs, n.KeptOutputs)).ToList();
+
+        var errors = WorkflowGraph.Validate(nodeDefs);
+        if (errors.Count > 0) return InvalidWorkflow(errors);
 
         var newVersion = new WorkflowVersion
         {
             WorkflowId = id,
             VersionNumber = maxVersion + 1,
-            StructureJson = JsonSerializer.Serialize(nodeDefs),
+            StructureJson = WorkflowJson.Serialize(nodeDefs),
         };
 
         db.WorkflowVersions.Add(newVersion);
@@ -185,60 +203,38 @@ public class WorkflowsController : ControllerBase
 
         if (fileRecord is null) return NotFound("File not found.");
 
+        var errors = WorkflowGraph.Validate(nodeDefs);
+        if (errors.Count > 0) return InvalidWorkflow(errors);
+
         var execution = new WorkflowExecution
         {
             WorkflowId = workflow.Id,
             WorkflowVersionId = latestVersion.Id,
             UserId = userId,
             InputFileRecordId = fileRecord.Id,
-            Status = WorkflowExecutionStatus.Pending,
+            InputFileRecord = fileRecord,
+            // Running up-front: a fast worker could otherwise complete a node before we flip the
+            // status and the reconciler's terminal state would be overwritten.
+            Status = WorkflowExecutionStatus.Running,
             TrimStartSeconds = request.TrimStartSeconds,
             TrimEndSeconds = request.TrimEndSeconds
         };
 
         db.WorkflowExecutions.Add(execution);
+        await db.SaveChangesAsync(ct);
 
-        var rootNodes = nodeDefs.Where(n => n.SourceNodeId == null).ToList();
+        await _results.SeedKeptAsync(db, execution, nodeDefs, ct);
+
         var nodeExecs = new List<NodeExecution>();
-
-        foreach (var rootNode in rootNodes)
+        foreach (var root in nodeDefs.Where(n => n.IsRoot).OrderBy(n => n.Order))
         {
-            var nodeExec = new NodeExecution
-            {
-                WorkflowExecutionId = execution.Id,
-                WorkflowNodeId = rootNode.Id,
-                Status = NodeExecutionStatus.Queued,
-                InputArtifactPath = fileRecord.StoragePath,
-                OutputArtifactDir = $"executions/{execution.Id}/nodes/{Guid.NewGuid()}/"
-            };
-            db.NodeExecutions.Add(nodeExec);
-            nodeExecs.Add(nodeExec);
+            var nodeExec = await _dispatcher.DispatchAsync(db, execution, nodeDefs, root, 1, ct);
+            if (nodeExec is not null) nodeExecs.Add(nodeExec);
         }
-
-        await db.SaveChangesAsync(ct);
-
-        var endpoint = await _sendEndpoint.GetSendEndpoint(new Uri("queue:process-node"));
-        foreach (var nodeExec in nodeExecs)
-        {
-            var nodeDef = rootNodes.First(n => n.Id == nodeExec.WorkflowNodeId);
-            await endpoint.Send(new ProcessNodeCommand
-            {
-                WorkflowExecutionId = execution.Id,
-                NodeExecutionId = nodeExec.Id,
-                NodeType = nodeDef.NodeType,
-                InputArtifactPath = nodeExec.InputArtifactPath ?? string.Empty,
-                OutputArtifactDir = nodeExec.OutputArtifactDir ?? string.Empty,
-                ConfigJson = nodeDef.ConfigJson,
-                TrimStartSeconds = execution.TrimStartSeconds,
-                TrimEndSeconds = execution.TrimEndSeconds
-            }, ct);
-        }
-
-        execution.Status = WorkflowExecutionStatus.Running;
-        await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Started execution {ExecutionId} for workflow {WorkflowId}", execution.Id, workflow.Id);
 
+        var defsById = nodeDefs.ToDictionary(d => d.Id);
         return Ok(new WorkflowExecutionDto(
             execution.Id,
             execution.WorkflowId,
@@ -246,16 +242,7 @@ public class WorkflowsController : ControllerBase
             workflow.Name,
             new FileRecordDto(fileRecord.Id, fileRecord.OriginalFileName, fileRecord.ContentType, fileRecord.SizeBytes, fileRecord.CreatedAt, fileRecord.ContentHash),
             execution.Status.ToString(),
-            nodeExecs.Select(ne =>
-            {
-                var def = rootNodes.FirstOrDefault(n => n.Id == ne.WorkflowNodeId);
-                return new NodeExecutionDto(
-                    ne.Id, ne.WorkflowNodeId, ne.Attempt, ne.Status.ToString(), ne.OutputArtifactDir,
-                    ne.OutputArtifactPathsJson != null ? JsonSerializer.Deserialize<Dictionary<string, string>>(ne.OutputArtifactPathsJson) ?? new() : new(),
-                    ne.ErrorMessage, ne.StartedAt, ne.CompletedAt,
-                    def != null ? $"Node {def.Order + 1}" : null,
-                    def != null ? ExtractModelName(def.ConfigJson) : null);
-            }).ToList(),
+            nodeExecs.Select(ne => WorkflowMapping.ToDto(ne, defsById.GetValueOrDefault(ne.WorkflowNodeId))).ToList(),
             execution.CreatedAt,
             execution.CompletedAt,
             execution.ErrorMessage,
@@ -263,25 +250,16 @@ public class WorkflowsController : ControllerBase
             execution.TrimEndSeconds));
     }
 
-    private static string? ExtractModelName(string? configJson)
-    {
-        if (string.IsNullOrWhiteSpace(configJson)) return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(configJson);
-            return doc.RootElement.TryGetProperty("modelName", out var m) ? m.GetString() : null;
-        }
-        catch { return null; }
-    }
-
-    private static List<WorkflowNodeDefinition> DeserializeNodes(string json) =>
-        JsonSerializer.Deserialize<List<WorkflowNodeDefinition>>(json) ?? new();
+    private static List<WorkflowNodeDefinition> DeserializeNodes(string json) => WorkflowJson.DeserializeNodes(json);
 
     private static WorkflowDto ToDto(Workflow w, WorkflowVersion version, List<WorkflowNodeDefinition> nodes) => new(
         w.Id,
         w.Name,
         version.Id,
-        nodes.OrderBy(n => n.Order).Select(n => new WorkflowNodeDto(n.Id, n.Order, n.NodeType, n.ConfigJson, n.SourceNodeId, n.SourceOutputName)).ToList(),
+        nodes.OrderBy(n => n.Order).Select(n => new WorkflowNodeDto(
+            n.Id, n.Order, n.NodeType, n.ConfigJson,
+            n.Inputs.Select(i => new NodeInputDto(i.SourceNodeId, i.SourceOutputName)).ToList(),
+            n.KeptOutputs.ToList())).ToList(),
         w.CreatedAt,
         w.UpdatedAt);
 }

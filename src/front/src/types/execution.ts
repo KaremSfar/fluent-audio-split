@@ -14,6 +14,7 @@ export interface NodeExecution {
   // Resolved server-side from the version the execution ran against, so the label survives
   // later edits to the workflow (which mint new node ids in a new version).
   nodeLabel?: string;
+  nodeType?: import('./workflow').NodeType;
   modelName?: string;
 }
 

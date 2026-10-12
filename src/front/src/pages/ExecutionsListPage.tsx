@@ -66,7 +66,7 @@ export default function ExecutionsListPage() {
                     <TableHead className="w-[30%]">File</TableHead>
                     <TableHead className="w-[120px] whitespace-nowrap">Status</TableHead>
                     <TableHead className="w-[150px] whitespace-nowrap">Created</TableHead>
-                    <TableHead className="w-[80px] whitespace-nowrap text-right">Actions</TableHead>
+                    <TableHead className="w-[190px] whitespace-nowrap text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -85,9 +85,20 @@ export default function ExecutionsListPage() {
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(ex.createdAt)}</TableCell>
                       <TableCell className="whitespace-nowrap text-right">
-                        <Link to={`/executions/${ex.id}`}>
-                          <Button size="sm" variant="outline">View →</Button>
-                        </Link>
+                        {(ex.status === 'Completed' || ex.status === 'PartiallyFailed') ? (
+                          <div className="flex justify-end gap-2">
+                            <Link to={`/executions/${ex.id}/results`}>
+                              <Button size="sm">Results →</Button>
+                            </Link>
+                            <Link to={`/executions/${ex.id}`}>
+                              <Button size="sm" variant="outline">Details</Button>
+                            </Link>
+                          </div>
+                        ) : (
+                          <Link to={`/executions/${ex.id}`}>
+                            <Button size="sm" variant="outline">View →</Button>
+                          </Link>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

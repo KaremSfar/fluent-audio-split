@@ -9,6 +9,8 @@ import { AdvancedParamsModal } from '@/components/AdvancedParamsModal';
 import { EnsemblePresetsModal } from '@/components/workflow/EnsemblePresetsModal';
 import { ModelBrowser } from '@/components/workflow/ModelBrowser';
 import { EnsembleConfig } from '@/components/workflow/EnsembleConfig';
+import { KeepToggle } from '@/components/nodes/KeepToggle';
+import type { KeepState } from '@/lib/workflowGraph';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface NodeConfig {
@@ -24,12 +26,15 @@ interface NodeSidePanelProps {
   nodeId: string;
   nodeIndex: number;
   configJson: string;
+  /** Output rows with their Keep state (duplicate affordance for the pin on the node card). */
+  outputs?: { name: string; state: KeepState }[];
+  onToggleKeep?: (nodeId: string, output: string) => void;
   onConfigChange: (nodeId: string, configJson: string) => void;
   onClose: () => void;
 }
 
 // ── Main Side Panel ───────────────────────────────────────────────────────────
-export function NodeSidePanel({ nodeId, nodeIndex, configJson, onConfigChange, onClose }: NodeSidePanelProps) {
+export function NodeSidePanel({ nodeId, nodeIndex, configJson, outputs, onToggleKeep, onConfigChange, onClose }: NodeSidePanelProps) {
   const config: NodeConfig = (() => {
     try { return JSON.parse(configJson); } catch { return {}; }
   })();
@@ -149,6 +154,20 @@ export function NodeSidePanel({ nodeId, nodeIndex, configJson, onConfigChange, o
         </div>
 
         <div className="flex-1 overflow-y-auto">
+          {/* ── Outputs (Keep) ────────────────────────────────────────────── */}
+          {outputs && outputs.length > 0 && onToggleKeep && (
+            <div className="px-4 py-3 border-b space-y-1.5">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Outputs</p>
+              {outputs.map((o) => (
+                <div key={o.name} className="group flex items-center justify-between text-sm">
+                  <span>{o.name}</span>
+                  <KeepToggle output={o.name} state={o.state} onToggle={() => onToggleKeep(nodeId, o.name)} />
+                </div>
+              ))}
+              <p className="text-[11px] text-muted-foreground">Pinned outputs become the Results tracks.</p>
+            </div>
+          )}
+
           {/* ── Model Browser ─────────────────────────────────────────────── */}
           <ModelBrowser
             selectedModel={modelName}

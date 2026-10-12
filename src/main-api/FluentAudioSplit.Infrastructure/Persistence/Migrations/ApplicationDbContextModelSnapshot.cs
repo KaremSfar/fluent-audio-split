@@ -143,6 +143,13 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
                     b.Property<string>("InputArtifactPath")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("InputArtifactsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NodeType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("OutputArtifactDir")
                         .HasColumnType("TEXT");
 
@@ -167,6 +174,40 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("NodeExecutions");
+                });
+
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.ResultTrack", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OutputName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("WorkflowExecutionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("WorkflowNodeId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkflowExecutionId", "WorkflowNodeId", "OutputName")
+                        .IsUnique();
+
+                    b.ToTable("ResultTracks");
                 });
 
             modelBuilder.Entity("FluentAudioSplit.Domain.Entities.Workflow", b =>
@@ -423,6 +464,17 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
                     b.Navigation("WorkflowExecution");
                 });
 
+            modelBuilder.Entity("FluentAudioSplit.Domain.Entities.ResultTrack", b =>
+                {
+                    b.HasOne("FluentAudioSplit.Domain.Entities.WorkflowExecution", "WorkflowExecution")
+                        .WithMany("ResultTracks")
+                        .HasForeignKey("WorkflowExecutionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("WorkflowExecution");
+                });
+
             modelBuilder.Entity("FluentAudioSplit.Domain.Entities.Workflow", b =>
                 {
                     b.HasOne("FluentAudioSplit.Domain.Entities.ApplicationUser", "User")
@@ -531,6 +583,8 @@ namespace FluentAudioSplit.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("FluentAudioSplit.Domain.Entities.WorkflowExecution", b =>
                 {
                     b.Navigation("NodeExecutions");
+
+                    b.Navigation("ResultTracks");
                 });
 #pragma warning restore 612, 618
         }

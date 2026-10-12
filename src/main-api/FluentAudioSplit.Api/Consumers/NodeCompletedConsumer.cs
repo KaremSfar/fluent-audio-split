@@ -12,26 +12,31 @@ namespace FluentAudioSplit.Api.Consumers;
 public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
 {
     private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
-    private readonly ISendEndpointProvider _sendEndpoint;
+    private readonly NodeDispatcher _dispatcher;
+    private readonly ResultTrackService _results;
     private readonly ExecutionEventBus _eventBus;
     private readonly ILogger<NodeCompletedConsumer> _logger;
 
     public NodeCompletedConsumer(
         IDbContextFactory<ApplicationDbContext> dbFactory,
-        ISendEndpointProvider sendEndpoint,
+        NodeDispatcher dispatcher,
+        ResultTrackService results,
         ExecutionEventBus eventBus,
         ILogger<NodeCompletedConsumer> logger)
     {
         _dbFactory = dbFactory;
-        _sendEndpoint = sendEndpoint;
+        _dispatcher = dispatcher;
+        _results = results;
         _eventBus = eventBus;
         _logger = logger;
     }
 
-    public async Task Consume(ConsumeContext<NodeCompletedEvent> context)
+    public Task Consume(ConsumeContext<NodeCompletedEvent> context) =>
+        HandleAsync(context.Message, context.CancellationToken);
+
+    /// <summary>Consumer body, separated from the MassTransit context so it can be unit-tested.</summary>
+    public async Task HandleAsync(NodeCompletedEvent msg, CancellationToken ct)
     {
-        var msg = context.Message;
-        var ct = context.CancellationToken;
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var nodeExec = await db.NodeExecutions
@@ -61,10 +66,8 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
 
         await db.SaveChangesAsync(ct);
 
-        // Load the workflow version to get the node graph
         var workflowExec = await db.WorkflowExecutions
             .Include(we => we.WorkflowVersion)
-            .Include(we => we.NodeExecutions)
             .FirstOrDefaultAsync(we => we.Id == msg.WorkflowExecutionId, ct);
 
         if (workflowExec is null)
@@ -73,93 +76,69 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
             return;
         }
 
+        var nodeDefs = WorkflowJson.DeserializeNodes(workflowExec.WorkflowVersion.StructureJson);
+
         // If the user cancelled the execution while this node was mid-flight, record the node's
         // output but do NOT spawn downstream work or resurrect a terminal execution.
         if (workflowExec.Status == WorkflowExecutionStatus.Cancelled)
         {
             _logger.LogInformation(
                 "WorkflowExecution {Id} is cancelled; not chaining downstream nodes", msg.WorkflowExecutionId);
-            await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
-            {
-                type = "NodeCompleted",
-                nodeExecutionId = msg.NodeExecutionId,
-                workflowNodeId = nodeExec.WorkflowNodeId,
-                attempt = nodeExec.Attempt,
-                outputArtifactPaths = msg.OutputArtifactPaths
-            });
+            await PublishNodeCompletedAsync(msg, nodeExec);
             return;
         }
 
-        var nodeDefs = JsonSerializer.Deserialize<List<WorkflowNodeDefinition>>(
-            workflowExec.WorkflowVersion.StructureJson) ?? new();
+        // Default-mode results (before the SSE publish so a client refetching on NodeCompleted
+        // already sees the row).
+        await _results.OnNodeCompletedAsync(db, workflowExec, nodeDefs, nodeExec, msg.OutputArtifactPaths, ct);
 
-        // Chain downstream nodes
-        var completedWorkflowNodeId = nodeExec.WorkflowNodeId;
-        var downstreamNodes = nodeDefs
-            .Where(n => n.SourceNodeId == completedWorkflowNodeId)
-            .ToList();
+        await PublishNodeCompletedAsync(msg, nodeExec);
 
-        var endpoint = await _sendEndpoint.GetSendEndpoint(new Uri("queue:process-node"));
-
-        foreach (var downstream in downstreamNodes)
+        // Chain dependents. A dependent is dispatched only once EVERY one of its inputs is
+        // available (Merge join). Two parents of one Merge may complete concurrently on different
+        // consumer threads: both can pass the join, and the unique index
+        // (execution, node, attempt) makes exactly one insert win — see NodeDispatcher.
+        foreach (var dependent in WorkflowGraph.Dependents(nodeDefs, nodeExec.WorkflowNodeId).ToList())
         {
-            // Idempotency: MassTransit has no inbox/outbox configured, so redelivery of this
-            // NodeCompletedEvent (at-least-once delivery) would otherwise re-run this whole loop
-            // and spawn a second downstream NodeExecution — and a second (GPU-expensive)
-            // ProcessNodeCommand — for the same workflow node. A live (non-Failed) row already
-            // existing for this (execution, workflow node) means it was already chained; skip it.
-            // `workflowExec.NodeExecutions` reflects entries added earlier in this same loop too,
-            // via EF's relationship fixup on `db.NodeExecutions.Add`.
-            var alreadyChained = workflowExec.NodeExecutions.Any(ne =>
-                ne.WorkflowNodeId == downstream.Id && ne.Status != NodeExecutionStatus.Failed);
+            // Idempotency (redelivery / already chained): any existing row means it was handled.
+            var alreadyChained = await db.NodeExecutions.AnyAsync(ne =>
+                ne.WorkflowExecutionId == msg.WorkflowExecutionId && ne.WorkflowNodeId == dependent.Id, ct);
             if (alreadyChained)
             {
                 _logger.LogInformation(
                     "Skipping duplicate downstream NodeExecution for workflow node {NodeId} (execution {ExecId}); already chained",
-                    downstream.Id, msg.WorkflowExecutionId);
+                    dependent.Id, msg.WorkflowExecutionId);
                 continue;
             }
 
-            var inputPath = downstream.SourceOutputName != null
-                && msg.OutputArtifactPaths.TryGetValue(downstream.SourceOutputName, out var resolvedPath)
-                ? resolvedPath
-                : msg.OutputArtifactPaths.Values.FirstOrDefault() ?? string.Empty;
-
-            var newNodeExec = new NodeExecution
+            var resolved = await _dispatcher.ResolveInputsAsync(db, workflowExec, nodeDefs, dependent, ct);
+            switch (resolved.Status)
             {
-                WorkflowExecutionId = msg.WorkflowExecutionId,
-                WorkflowNodeId = downstream.Id,
-                Status = NodeExecutionStatus.Queued,
-                InputArtifactPath = inputPath,
-                OutputArtifactDir = $"executions/{msg.WorkflowExecutionId}/nodes/{Guid.NewGuid()}/"
-            };
+                case InputResolutionStatus.Waiting:
+                    continue;
 
-            db.NodeExecutions.Add(newNodeExec);
-            await db.SaveChangesAsync(ct);
+                case InputResolutionStatus.MissingOutput:
+                    var failed = await _dispatcher.FailAsync(db, workflowExec, dependent, resolved.Error ?? "Input was not produced.", ct);
+                    if (failed is not null)
+                    {
+                        await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
+                        {
+                            type = "NodeFailed",
+                            nodeExecutionId = failed.Id,
+                            workflowNodeId = failed.WorkflowNodeId,
+                            attempt = failed.Attempt,
+                            nodeType = failed.NodeType,
+                            errorMessage = failed.ErrorMessage,
+                            isTransient = false
+                        });
+                    }
+                    continue;
 
-            await endpoint.Send(new ProcessNodeCommand
-            {
-                WorkflowExecutionId = msg.WorkflowExecutionId,
-                NodeExecutionId = newNodeExec.Id,
-                NodeType = downstream.NodeType,
-                InputArtifactPath = newNodeExec.InputArtifactPath ?? string.Empty,
-                OutputArtifactDir = newNodeExec.OutputArtifactDir ?? string.Empty,
-                ConfigJson = downstream.ConfigJson
-            }, ct);
+                default:
+                    await _dispatcher.DispatchAsync(db, workflowExec, nodeDefs, dependent, 1, ct);
+                    break;
+            }
         }
-
-        // Check if ALL workflow nodes have completed executions
-        // Reload to get freshly added node executions
-        await db.Entry(workflowExec).Collection(we => we.NodeExecutions).LoadAsync(ct);
-
-        await _eventBus.PublishAsync(msg.WorkflowExecutionId, new
-        {
-            type = "NodeCompleted",
-            nodeExecutionId = msg.NodeExecutionId,
-            workflowNodeId = nodeExec.WorkflowNodeId,
-            attempt = nodeExec.Attempt,
-            outputArtifactPaths = msg.OutputArtifactPaths
-        });
 
         // Settle the execution only once nothing is still in flight. Any downstream nodes queued
         // just above keep it Running; when the final leaf completes the reconciler returns the
@@ -175,4 +154,15 @@ public class NodeCompletedConsumer : IConsumer<NodeCompletedEvent>
             });
         }
     }
+
+    private Task PublishNodeCompletedAsync(NodeCompletedEvent msg, NodeExecution nodeExec) =>
+        _eventBus.PublishAsync(msg.WorkflowExecutionId, new
+        {
+            type = "NodeCompleted",
+            nodeExecutionId = msg.NodeExecutionId,
+            workflowNodeId = nodeExec.WorkflowNodeId,
+            attempt = nodeExec.Attempt,
+            nodeType = nodeExec.NodeType,
+            outputArtifactPaths = msg.OutputArtifactPaths
+        });
 }

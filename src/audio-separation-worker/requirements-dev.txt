@@ -1,0 +1,5 @@
+# Test-only dependencies (light: no torch / audio-separator). Requires ffmpeg + ffprobe on PATH.
+pytest
+numpy
+soundfile
+kombu>=5.3

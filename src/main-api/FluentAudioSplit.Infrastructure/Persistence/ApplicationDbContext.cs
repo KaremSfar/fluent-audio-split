@@ -36,6 +36,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<WorkflowVersion> WorkflowVersions => Set<WorkflowVersion>();
     public DbSet<WorkflowExecution> WorkflowExecutions => Set<WorkflowExecution>();
     public DbSet<NodeExecution> NodeExecutions => Set<NodeExecution>();
+    public DbSet<ResultTrack> ResultTracks => Set<ResultTrack>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -87,6 +88,17 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
              .WithOne(ne => ne.WorkflowExecution)
              .HasForeignKey(ne => ne.WorkflowExecutionId)
              .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(we => we.ResultTracks)
+             .WithOne(rt => rt.WorkflowExecution)
+             .HasForeignKey(rt => rt.WorkflowExecutionId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ResultTrack>(e =>
+        {
+            e.HasKey(rt => rt.Id);
+            e.Property(rt => rt.Origin).HasConversion<string>();
+            e.HasIndex(rt => new { rt.WorkflowExecutionId, rt.WorkflowNodeId, rt.OutputName }).IsUnique();
         });
 
         builder.Entity<NodeExecution>(e =>

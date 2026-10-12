@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useNowTick } from '@/hooks/useNowTick';
 import { StatusBadge } from './StatusBadge';
 import { StemsPlayerGroup } from './StemsPlayerGroup';
@@ -24,6 +25,7 @@ function duration(start?: string, end?: string) {
 
 // ── Props ────────────────────────────────────────────────────
 export interface ExecutionDrawerProps {
+  executionId?: string;
   nodeExecutions: NodeExecution[];
   workflowNodes: WorkflowNode[];
   executionStatus: WorkflowExecutionStatus | null;
@@ -37,6 +39,7 @@ export interface ExecutionDrawerProps {
 
 // ── Component ────────────────────────────────────────────────
 export function ExecutionDrawer({
+  executionId,
   nodeExecutions,
   workflowNodes,
   executionStatus,
@@ -48,6 +51,7 @@ export function ExecutionDrawer({
   onClose,
 }: ExecutionDrawerProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const navigate = useNavigate();
 
   // Shared across every node row's StemsPlayerGroup in this drawer — every stem plays through this
   // one engine's single AudioContext clock, so stems in different nodes start in exact phase and
@@ -117,6 +121,15 @@ export function ExecutionDrawer({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {executionId && (executionStatus === 'Completed' || executionStatus === 'PartiallyFailed') && (
+            <Button
+              size="sm"
+              className="h-6 text-xs px-2"
+              onClick={() => navigate(`/executions/${executionId}/results`)}
+            >
+              Open Results
+            </Button>
+          )}
           {isTerminal && (
             <Button variant="outline" size="sm" onClick={onReRun} className="h-6 text-xs px-2">
               ⚡ Re-run
@@ -139,7 +152,9 @@ export function ExecutionDrawer({
         )}
         {nodeExecutions.map((node) => {
           const wfNode = nodeMap.get(node.workflowNodeId);
+          const isMerge = (node.nodeType ?? wfNode?.nodeType) === 'Merge';
           const modelName = (() => {
+            if (isMerge) return null;
             // Prefer the model resolved server-side from the executed version, so nodes that no
             // longer exist in the latest version still show their real model instead of "Node".
             if (node.modelName) return node.modelName.replace('.yaml', '').replace('.onnx', '');
@@ -159,6 +174,7 @@ export function ExecutionDrawer({
                 <span className="font-medium">
                   {node.nodeLabel ?? (wfNode ? `Node ${wfNode.order + 1}` : 'Node')}
                 </span>
+                {isMerge && <span className="ml-1.5 text-xs text-teal-700">(Merge)</span>}
                 {modelName && (
                   <span className="ml-1.5 text-xs text-muted-foreground">({modelName})</span>
                 )}

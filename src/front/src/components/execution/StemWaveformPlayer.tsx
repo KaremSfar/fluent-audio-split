@@ -11,6 +11,12 @@ interface StemWaveformPlayerProps {
   engine: StemSyncEngine;
   /** Render a shorter waveform, suited to the compact in-canvas drawer. */
   compact?: boolean;
+  /** `dark` is the Results-page studio lane style (zinc waveform, `color` as the progress fill). */
+  variant?: 'default' | 'dark';
+  /** Progress/cursor colour for the dark variant (any CSS colour). */
+  color?: string;
+  /** Dark variant only: called by the "Retry" button after a load/decode failure. */
+  onRetry?: () => void;
 }
 
 /**
@@ -24,23 +30,37 @@ interface StemWaveformPlayerProps {
  * parent re-renders can't churn it — a churned registration would silently drop this stem out of
  * the shared transport.
  */
-export function StemWaveformPlayer({ id, path, engine, compact = false }: StemWaveformPlayerProps) {
+export function StemWaveformPlayer({
+  id,
+  path,
+  engine,
+  compact = false,
+  variant = 'default',
+  color = '#8b5cf6',
+  onRetry,
+}: StemWaveformPlayerProps) {
+  const dark = variant === 'dark';
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const [error, setError] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     engine.register(id, path, {
       setCursor: (time) => wavesurferRef.current?.setTime(time),
-      setError: (e) => setError(e),
+      setError: (e) => {
+        setError(e);
+        if (e) setReady(false);
+      },
       renderWaveform: async (blobUrl) => {
         if (wavesurferRef.current || !containerRef.current) return;
         const wavesurfer = WaveSurfer.create({
           container: containerRef.current,
-          waveColor: '#c4b5fd',
-          progressColor: '#8b5cf6',
-          cursorColor: '#7c3aed',
-          height: compact ? 40 : 64,
+          waveColor: dark ? '#71717a' : '#c4b5fd',
+          progressColor: dark ? color : '#8b5cf6',
+          cursorColor: dark ? '#fafafa' : '#7c3aed',
+          height: dark ? 72 : compact ? 40 : 64,
+          ...(dark ? { barWidth: 2, barGap: 1, barRadius: 1, normalize: true } : {}),
           url: blobUrl,
         });
         wavesurferRef.current = wavesurfer;
@@ -53,6 +73,8 @@ export function StemWaveformPlayer({ id, path, engine, compact = false }: StemWa
         await new Promise<void>((resolve) => {
           wavesurfer.once('ready', () => resolve());
         });
+        setError(false);
+        setReady(true);
       },
     });
 
@@ -60,8 +82,37 @@ export function StemWaveformPlayer({ id, path, engine, compact = false }: StemWa
       engine.unregister(id);
       wavesurferRef.current?.destroy();
       wavesurferRef.current = null;
+      setReady(false);
     };
-  }, [engine, id, path, compact]);
+  }, [engine, id, path, compact, dark, color]);
+
+  if (dark) {
+    return (
+      <div className="relative flex-1 min-w-0" style={{ minHeight: 72 }}>
+        <div ref={containerRef} className="w-full" />
+        {!ready && !error && (
+          <div className="absolute inset-0 animate-pulse rounded bg-zinc-800/70" aria-hidden="true" />
+        )}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-red-300">
+            <span>Couldn't load this stem.</span>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={() => {
+                  setError(false);
+                  onRetry();
+                }}
+                className="rounded border border-red-300/60 px-2 py-0.5 text-xs hover:bg-red-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1">

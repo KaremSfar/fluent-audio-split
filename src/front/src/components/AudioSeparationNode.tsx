@@ -1,53 +1,18 @@
-import { memo, useContext, createContext } from 'react';
+import { memo, useContext } from 'react';
 import { Handle, Position, useEdges, type NodeProps } from '@xyflow/react';
 import { MODEL_DEFINITIONS, getStemsForModel, STEM_COLORS } from '@/lib/models';
-import { useNowTick } from '@/hooks/useNowTick';
+import { NodeCallbacksContext } from '@/components/nodes/NodeCallbacksContext';
+import { KeepToggle } from '@/components/nodes/KeepToggle';
+import { NodeExecFooter } from '@/components/nodes/NodeExecFooter';
+import { execBorderClass, type AudioSeparationNodeData } from '@/components/nodes/nodeData';
+import { KEEP_COLOR, stemColorHex } from '@/components/nodes/stemColors';
 
-// ── Context for callbacks (avoids storing non-serializable fns in node data) ──
-export interface NodeCallbacks {
-  onConfigChange: (nodeId: string, configJson: string) => void;
-  onRemove: (nodeId: string) => void;
-  onPlayNode: (nodeId: string) => void;
-}
-export const NodeCallbacksContext = createContext<NodeCallbacks>({
-  onConfigChange: () => {},
-  onRemove: () => {},
-  onPlayNode: () => {},
-});
-
-export interface AudioSeparationNodeData {
-  nodeId: string;
-  configJson: string;
-  isRoot: boolean;
-  nodeIndex: number;
-  // Execution overlay (set when an execution is active/loaded)
-  execStatus?: import('@/types/execution').NodeExecutionStatus;
-  execStartedAt?: string;
-  execCompletedAt?: string;
-  execErrorMessage?: string;
-  execAttempt?: number;
-  execOutputPaths?: Record<string, string>;
-  execNodeExecutionId?: string;
-  execCanPlay?: boolean;
-}
-
-export type AudioSeparationRFNode = {
-  id: string;
-  type: 'audioSeparation';
-  position: { x: number; y: number };
-  data: AudioSeparationNodeData;
-};
+export type { AudioSeparationNodeData } from '@/components/nodes/nodeData';
 
 function AudioSeparationNode({ data, selected }: NodeProps) {
-  const {
-    nodeId, configJson, nodeIndex,
-    execStatus, execStartedAt, execCompletedAt, execErrorMessage,
-    execCanPlay,
-  } = data as unknown as AudioSeparationNodeData;
-  const { onRemove, onPlayNode } = useContext(NodeCallbacksContext);
-
-  // The "Running" elapsed time is derived from the wall-clock at render time; tick so it advances.
-  const now = useNowTick(execStatus === 'Running');
+  const nodeData = data as unknown as AudioSeparationNodeData;
+  const { nodeId, configJson, nodeIndex, execStatus, execCanPlay, keepStates, issues } = nodeData;
+  const { onRemove, onPlayNode, onToggleKeep } = useContext(NodeCallbacksContext);
 
   const edges = useEdges();
   const connectedStems = new Set(
@@ -66,39 +31,11 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
   const arch = modelDef?.arch ?? 'mdxc';
 
   // ── Execution-aware border & styles ──
-  const borderByStatus: Record<string, string> = {
-    Pending: 'border-slate-300',
-    Queued: 'border-slate-300',
-    Running: 'border-blue-500 ring-2 ring-blue-300',
-    Completed: 'border-green-500',
-    Failed: 'border-red-500',
-    Cancelled: 'border-slate-400',
-  };
   const baseBorder = execStatus
-    ? borderByStatus[execStatus] ?? 'border-violet-400'
+    ? execBorderClass[execStatus] ?? 'border-violet-400'
     : selected
       ? 'border-violet-600 ring-2 ring-violet-300'
       : 'border-violet-400';
-
-  // ── Duration helper ──
-  const elapsed = (() => {
-    if (!execStartedAt) return null;
-    const start = new Date(execStartedAt).getTime();
-    const end = execCompletedAt ? new Date(execCompletedAt).getTime() : now;
-    const s = Math.round((end - start) / 1000);
-    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
-  })();
-
-  // ── Status footer config ──
-  const statusFooter: Record<string, { icon: string; label: string; color: string }> = {
-    Pending: { icon: '○', label: 'Pending', color: 'text-slate-400' },
-    Queued: { icon: '○', label: 'Queued', color: 'text-slate-400' },
-    Running: { icon: '⏳', label: 'Running', color: 'text-blue-600' },
-    Completed: { icon: '✅', label: 'Done', color: 'text-green-600' },
-    Failed: { icon: '✗', label: 'Failed', color: 'text-red-600' },
-    Cancelled: { icon: '—', label: 'Cancelled', color: 'text-slate-500' },
-  };
-  const footer = execStatus ? statusFooter[execStatus] : null;
 
   // ── Play button logic ──
   const isRunningOrPending = execStatus === 'Running' || execStatus === 'Pending' || execStatus === 'Queued';
@@ -114,7 +51,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Left}
-        id="input"
+        id="in-0"
         style={{
           background: '#8b5cf6',
           width: 12,
@@ -129,7 +66,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
       {/* Header */}
       <div className="bg-violet-500 text-white rounded-t-xl px-3 py-2 flex items-center gap-2">
         <span className="text-base">🎛️</span>
-        <span className="font-semibold text-xs flex-1 truncate">Node {(nodeIndex as number) + 1}</span>
+        <span className="font-semibold text-xs flex-1 truncate">Split · Node {nodeIndex + 1}</span>
         <span className="text-[9px] font-mono uppercase bg-violet-400/60 rounded px-1.5 py-0.5">{arch}</span>
         {/* Play button in header */}
         {showPlay && (
@@ -174,15 +111,19 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
           const color = STEM_COLORS[stem] ?? 'bg-slate-400';
           const dotColor = stemColorHex(color);
           const connected = connectedStems.has(stem);
+          const keepState = keepStates?.[stem] ?? 'none';
           return (
             <div
               key={stem}
-              className="flex items-center px-3 py-1"
+              className="group flex items-center gap-2 px-3 py-1"
               style={{ position: 'relative' }}
               title={connected ? `${stem} — connected` : `${stem} — drag to connect`}
             >
               <span className={`text-xs font-medium px-2 py-0.5 rounded-full text-white ${color}`}>{stem}</span>
-              <span className="ml-auto text-[10px] text-muted-foreground pr-4">
+              <span className="ml-auto">
+                <KeepToggle output={stem} state={keepState} onToggle={() => onToggleKeep(nodeId, stem)} />
+              </span>
+              <span className="text-[10px] text-muted-foreground pr-4 w-14">
                 {connected ? '● linked' : '○ open'}
               </span>
               <Handle
@@ -196,6 +137,7 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
                   transform: 'translateY(-50%)',
                   background: connected ? dotColor : 'white',
                   border: `2px solid ${dotColor}`,
+                  boxShadow: keepState === 'kept' ? `0 0 0 3px ${KEEP_COLOR}` : undefined,
                   width: 12,
                   height: 12,
                 }}
@@ -205,57 +147,16 @@ function AudioSeparationNode({ data, selected }: NodeProps) {
         })}
       </div>
 
-      {/* ── Execution status footer ── */}
-      {footer && (
-        <div className={`border-t border-border/50 px-3 py-1.5 flex items-center gap-2 ${footer.color}`}>
-          <span className="text-sm">{footer.icon}</span>
-          <span className="text-xs font-medium">{footer.label}</span>
-          {elapsed && <span className="text-[10px] text-muted-foreground ml-auto">{elapsed}</span>}
+      {issues && issues.length > 0 && (
+        <div className="border-t border-amber-300 px-3 py-1" title={issues.join('\n')}>
+          <p className="text-[10px] text-amber-700 truncate">⚠ {issues[0]}</p>
         </div>
       )}
 
-      {/* Failed error snippet */}
-      {execStatus === 'Failed' && execErrorMessage && (
-        <div className="px-3 pb-2">
-          <p className="text-[9px] text-red-500 truncate" title={execErrorMessage}>{execErrorMessage}</p>
-        </div>
-      )}
+      {/* ── Execution status footer ── */}
+      <NodeExecFooter {...nodeData} />
     </div>
   );
-}
-
-function stemColorHex(twClass: string): string {
-  const map: Record<string, string> = {
-    'bg-rose-400': '#fb7185',
-    'bg-amber-400': '#fbbf24',
-    'bg-emerald-400': '#34d399',
-    'bg-slate-400': '#94a3b8',
-    'bg-orange-400': '#fb923c',
-    'bg-sky-400': '#38bdf8',
-    'bg-indigo-400': '#818cf8',
-    'bg-red-300': '#fca5a5',
-    'bg-teal-400': '#2dd4bf',
-    'bg-cyan-400': '#22d3ee',
-    'bg-blue-300': '#93c5fd',
-    'bg-lime-400': '#a3e635',
-    'bg-yellow-300': '#fde047',
-    'bg-orange-300': '#fdba74',
-    'bg-green-300': '#86efac',
-    'bg-red-400': '#f87171',
-    'bg-yellow-400': '#facc15',
-    'bg-emerald-300': '#6ee7b7',
-    'bg-teal-300': '#5eead4',
-    'bg-blue-400': '#60a5fa',
-    'bg-pink-400': '#f472b6',
-    'bg-purple-300': '#d8b4fe',
-    'bg-sky-300': '#7dd3fc',
-    'bg-slate-300': '#cbd5e1',
-    'bg-violet-300': '#c4b5fd',
-    'bg-green-400': '#4ade80',
-    'bg-emerald-200': '#a7f3d0',
-    'bg-amber-200': '#fde68a',
-  };
-  return map[twClass] ?? '#8b5cf6';
 }
 
 export default memo(AudioSeparationNode);

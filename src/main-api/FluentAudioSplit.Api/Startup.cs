@@ -82,6 +82,8 @@ public class Startup
 
         services.AddHttpContextAccessor();
         services.AddSingleton<ExecutionEventBus>();
+        services.AddScoped<NodeDispatcher>();
+        services.AddSingleton<ResultTrackService>();
         services.AddSingleton<IFileStorageProvider>(sp =>
             new LocalFileStorageProvider(Configuration["FileStorage:BasePath"] ?? "/data/audio"));
         services.Configure<YouTubeAudioImportOptions>(Configuration.GetSection(YouTubeAudioImportOptions.SectionName));

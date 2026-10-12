@@ -26,6 +26,7 @@ flowchart LR
 | `handlers.py` | `handle_process_node` → `_handle_audio_separation`: orchestrates registry lookup → start → separate → map → complete |
 | `model_registry.py` | `get_model_entry()` — loads `model_registry.json`, the single source of truth for model → `stems` (display) + `stem_map` (display → SDK-real). Raises, no fallback, if a model is missing/unresolved |
 | `separator.py` | `AudioSeparator` strategy: `LocalAudioSeparator` vs `RemoteAudioSeparator`, chosen by env |
+| `merge.py` | Merge node: ffmpeg decode → per-input gain → sum (zero-padded) → level handling → FLAC PCM_24 |
 | `publisher.py` | Builds MassTransit-compatible envelopes and publishes node lifecycle events |
 | `validation.py` | `SeparationValidator` — sanity-checks `advancedParams` keys only (model/stem existence is the registry's job) |
 | `storage.py` | Relative ↔ absolute path resolution on the shared volume |
@@ -69,6 +70,17 @@ sequenceDiagram
 - **`configJson`** (from the node) drives behavior: `modelName` (required, looked up in the registry — errors
   with no fallback if missing/unresolved), `ensembleEnabled` + `ensembleModels` + `ensembleMethod`, and
   `advancedParams`.
+
+## Merge node
+
+`nodeType: "Merge"` is dispatched to `_handle_merge` (CPU only, even when separation is remote). The command carries
+`inputArtifacts: [{path, label, gainDb}]` (`inputArtifactPath` is `""`) and `configJson` with `levelMode`
+(`preventClipping` default / `normalizePeak` / `none`) and `ceilingDb` (default `-1`). Inputs are decoded to stereo
+float32 at the first input's sample rate, gain-scaled, zero-padded to the longest and summed; the result is written as
+`mix_{nodeExecId[:5]}.flac` (PCM_24) and published as `NodeCompleted {"Mix": "<relative path>"}`. Fewer than 2 inputs or
+an invalid `levelMode` fails the node non-transiently; `OSError` is transient.
+
+Tests: `pip install -r requirements-dev.txt && python -m pytest` (needs ffmpeg).
 
 ## Local vs remote separation
 

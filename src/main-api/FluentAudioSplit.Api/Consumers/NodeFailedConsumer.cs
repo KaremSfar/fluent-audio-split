@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FluentAudioSplit.Api.Messages;
 using FluentAudioSplit.Api.Services;
 using FluentAudioSplit.Domain.Entities;
@@ -18,18 +17,18 @@ public class NodeFailedConsumer : IConsumer<NodeFailedEvent>
     private const int MaxAutoRetryAttempts = 3;
 
     private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
-    private readonly ISendEndpointProvider _sendEndpoint;
+    private readonly NodeDispatcher _dispatcher;
     private readonly ExecutionEventBus _eventBus;
     private readonly ILogger<NodeFailedConsumer> _logger;
 
     public NodeFailedConsumer(
         IDbContextFactory<ApplicationDbContext> dbFactory,
-        ISendEndpointProvider sendEndpoint,
+        NodeDispatcher dispatcher,
         ExecutionEventBus eventBus,
         ILogger<NodeFailedConsumer> logger)
     {
         _dbFactory = dbFactory;
-        _sendEndpoint = sendEndpoint;
+        _dispatcher = dispatcher;
         _eventBus = eventBus;
         _logger = logger;
     }
@@ -61,6 +60,7 @@ public class NodeFailedConsumer : IConsumer<NodeFailedEvent>
             nodeExecutionId = msg.NodeExecutionId,
             workflowNodeId = nodeExec.WorkflowNodeId,
             attempt = nodeExec.Attempt,
+            nodeType = nodeExec.NodeType,
             errorMessage = msg.ErrorMessage,
             isTransient = msg.IsTransient
         });
@@ -104,45 +104,25 @@ public class NodeFailedConsumer : IConsumer<NodeFailedEvent>
         if (workflowExec is null || workflowExec.Status == WorkflowExecutionStatus.Cancelled)
             return false;
 
-        var nodeDefs = JsonSerializer.Deserialize<List<WorkflowNodeDefinition>>(
-            workflowExec.WorkflowVersion.StructureJson) ?? new();
+        var nodeDefs = WorkflowJson.DeserializeNodes(workflowExec.WorkflowVersion.StructureJson);
         var nodeDef = nodeDefs.FirstOrDefault(n => n.Id == failedNode.WorkflowNodeId);
+        if (nodeDef is null) return false;
 
         // Cold-start/contention blips (the motivating case) typically clear within a couple of
         // seconds; back off a little longer on each successive attempt.
         var backoff = TimeSpan.FromSeconds(Math.Pow(2, failedNode.Attempt - 1));
         await Task.Delay(backoff, ct);
 
-        var newNodeExec = new NodeExecution
-        {
-            WorkflowExecutionId = msg.WorkflowExecutionId,
-            WorkflowNodeId = failedNode.WorkflowNodeId,
-            Attempt = failedNode.Attempt + 1,
-            Status = NodeExecutionStatus.Queued,
-            InputArtifactPath = failedNode.InputArtifactPath,
-            OutputArtifactDir = $"executions/{msg.WorkflowExecutionId}/nodes/{Guid.NewGuid()}/"
-        };
-
-        db.NodeExecutions.Add(newNodeExec);
         workflowExec.Status = WorkflowExecutionStatus.Running;
         await db.SaveChangesAsync(ct);
+
+        var newNodeExec = await _dispatcher.DispatchAsync(
+            db, workflowExec, nodeDefs, nodeDef, failedNode.Attempt + 1, ct);
+        if (newNodeExec is null) return false;
 
         _logger.LogInformation(
             "Auto-retrying transient failure for workflow node {NodeId} (execution {ExecId}), attempt {Attempt}",
             failedNode.WorkflowNodeId, msg.WorkflowExecutionId, newNodeExec.Attempt);
-
-        var endpoint = await _sendEndpoint.GetSendEndpoint(new Uri("queue:process-node"));
-        await endpoint.Send(new ProcessNodeCommand
-        {
-            WorkflowExecutionId = msg.WorkflowExecutionId,
-            NodeExecutionId = newNodeExec.Id,
-            NodeType = nodeDef?.NodeType ?? string.Empty,
-            InputArtifactPath = newNodeExec.InputArtifactPath ?? string.Empty,
-            OutputArtifactDir = newNodeExec.OutputArtifactDir ?? string.Empty,
-            ConfigJson = nodeDef?.ConfigJson ?? "{}",
-            TrimStartSeconds = nodeDef?.SourceNodeId == null ? workflowExec.TrimStartSeconds : null,
-            TrimEndSeconds = nodeDef?.SourceNodeId == null ? workflowExec.TrimEndSeconds : null
-        }, ct);
 
         return true;
     }

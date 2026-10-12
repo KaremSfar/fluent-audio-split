@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 from app.audio_trim import trim_audio
+from app.merge import LEVEL_MODES, MergeInput, merge_stems
 from app.model_registry import get_model_entry
 from app.publisher import publish_node_completed, publish_node_failed, publish_node_started
 from app.separator import TransientSeparationError, create_audio_separator
@@ -74,6 +75,8 @@ def handle_process_node(payload: dict, storage: FileStorageProvider) -> None:
 
     if node_type == "AudioSeparation":
         _handle_audio_separation(payload, storage)
+    elif node_type == "Merge":
+        _handle_merge(payload, storage)
     else:
         logger.error("Unknown nodeType: %s", node_type)
         publish_node_started(payload["workflowExecutionId"], payload["nodeExecutionId"])
@@ -222,3 +225,60 @@ def _handle_audio_separation(payload: dict, storage: FileStorageProvider) -> Non
             is_transient=isinstance(e, (OSError, TransientSeparationError)),
         )
 
+
+
+def _handle_merge(payload: dict, storage: FileStorageProvider) -> None:
+    workflow_execution_id = payload["workflowExecutionId"]
+    node_execution_id = payload["nodeExecutionId"]
+    output_dir = payload["outputArtifactDir"]
+
+    try:
+        config = json.loads(payload.get("configJson") or "{}")
+        input_artifacts = payload.get("inputArtifacts") or []
+        if len(input_artifacts) < 2:
+            raise ValueError(f"Merge requires at least 2 inputs, got {len(input_artifacts)}")
+
+        level_mode = config.get("levelMode") or "preventClipping"
+        if level_mode not in LEVEL_MODES:
+            raise ValueError(f"Invalid levelMode '{level_mode}'. Expected one of: {', '.join(LEVEL_MODES)}")
+        ceiling_db = config.get("ceilingDb")
+        ceiling_db = -1.0 if ceiling_db is None else float(ceiling_db)
+
+        inputs = [
+            MergeInput(
+                path=storage.get_absolute_path(a["path"]),
+                gain_db=float(a.get("gainDb") or 0.0),
+                label=a.get("label") or "",
+            )
+            for a in input_artifacts
+        ]
+        for inp in inputs:
+            if not inp.path.exists():
+                raise FileNotFoundError(f"Merge input not found: {inp.path.name}")
+
+        abs_output_dir = storage.get_absolute_path(output_dir)
+        abs_output_dir.mkdir(parents=True, exist_ok=True)
+        out_path = abs_output_dir / f"mix_{node_execution_id[:5]}.flac"
+
+        publish_node_started(workflow_execution_id, node_execution_id)
+
+        merge_stems(inputs, out_path, level_mode=level_mode, ceiling_db=ceiling_db)
+
+        abs_base = storage.get_absolute_path("").resolve()
+        try:
+            rel = str(out_path.resolve().relative_to(abs_base))
+        except ValueError:
+            rel = str(Path(output_dir) / out_path.name)
+
+        output_map = {"Mix": rel}
+        logger.info("Merge complete. Outputs: %s", output_map)
+        publish_node_completed(workflow_execution_id, node_execution_id, output_map)
+
+    except Exception as e:
+        logger.exception("Merge failed")
+        publish_node_failed(
+            workflow_execution_id,
+            node_execution_id,
+            str(e),
+            is_transient=isinstance(e, OSError),
+        )

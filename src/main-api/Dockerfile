@@ -39,6 +39,7 @@ COPY FluentAudioSplit.slnx ./
 COPY FluentAudioSplit.Api/FluentAudioSplit.Api.csproj FluentAudioSplit.Api/
 COPY FluentAudioSplit.Domain/FluentAudioSplit.Domain.csproj FluentAudioSplit.Domain/
 COPY FluentAudioSplit.Infrastructure/FluentAudioSplit.Infrastructure.csproj FluentAudioSplit.Infrastructure/
+COPY FluentAudioSplit.Tests/FluentAudioSplit.Tests.csproj FluentAudioSplit.Tests/
 RUN dotnet restore
 
 COPY . .

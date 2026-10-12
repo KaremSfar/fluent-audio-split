@@ -163,6 +163,11 @@ export default function ExecutionPage() {
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold tracking-tight">{execution.workflowName}</h1>
             <StatusBadge status={currentStatus} />
+            {(currentStatus === 'Completed' || currentStatus === 'PartiallyFailed') && (
+              <Button size="sm" onClick={() => navigate(`/executions/${execution.id}/results`)}>
+                Open Results
+              </Button>
+            )}
             {(currentStatus === 'Running' || currentStatus === 'Pending') && (
               <Button
                 variant="outline"

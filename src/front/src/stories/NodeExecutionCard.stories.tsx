@@ -27,8 +27,8 @@ const mockWorkflowNode: WorkflowNode = {
   order: 0,
   nodeType: 'AudioSeparation',
   configJson: '{"modelName":"htdemucs_ft.yaml"}',
-  sourceNodeId: null,
-  sourceOutputName: null,
+  inputs: [],
+  keptOutputs: [],
 };
 
 const pendingNode: NodeExecution = {

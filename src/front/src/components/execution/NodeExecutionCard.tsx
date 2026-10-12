@@ -36,13 +36,15 @@ export function NodeExecutionCard({
   isRetrying,
   engine,
 }: NodeExecutionCardProps) {
+  const isMerge = (node.nodeType ?? workflowNode?.nodeType) === 'Merge';
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-base">
-            {node.nodeLabel ?? (workflowNode ? `Node ${workflowNode.order + 1}` : 'Audio Separation')}
-            {(() => {
+            {node.nodeLabel ?? (workflowNode ? `Node ${workflowNode.order + 1}` : isMerge ? 'Merge' : 'Audio Separation')}
+            {isMerge && <span className="ml-2 text-sm font-normal text-teal-700">(Merge)</span>}
+            {!isMerge && (() => {
               // Prefer the model name resolved server-side from the executed version; fall back
               // to the latest workflow node's config only when the server didn't provide one.
               let modelName = node.modelName ?? null;

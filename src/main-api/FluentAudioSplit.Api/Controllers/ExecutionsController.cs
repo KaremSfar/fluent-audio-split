@@ -22,18 +22,18 @@ namespace FluentAudioSplit.Api.Controllers;
 public class ExecutionsController : ControllerBase
 {
     private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
-    private readonly ISendEndpointProvider _sendEndpoint;
+    private readonly NodeDispatcher _dispatcher;
     private readonly ExecutionEventBus _eventBus;
     private readonly ILogger<ExecutionsController> _logger;
 
     public ExecutionsController(
         IDbContextFactory<ApplicationDbContext> dbFactory,
-        ISendEndpointProvider sendEndpoint,
+        NodeDispatcher dispatcher,
         ExecutionEventBus eventBus,
         ILogger<ExecutionsController> logger)
     {
         _dbFactory = dbFactory;
-        _sendEndpoint = sendEndpoint;
+        _dispatcher = dispatcher;
         _eventBus = eventBus;
         _logger = logger;
     }
@@ -140,33 +140,14 @@ public class ExecutionsController : ControllerBase
 
         var nodeDefs = DeserializeNodes(execution.WorkflowVersion.StructureJson);
         var nodeDef = nodeDefs.FirstOrDefault(n => n.Id == failedNode.WorkflowNodeId);
+        if (nodeDef is null) return NotFound("Node is not part of this execution's workflow version.");
 
-        var newNodeExec = new NodeExecution
-        {
-            WorkflowExecutionId = id,
-            WorkflowNodeId = failedNode.WorkflowNodeId,
-            Attempt = failedNode.Attempt + 1,
-            Status = NodeExecutionStatus.Queued,
-            InputArtifactPath = failedNode.InputArtifactPath,
-            OutputArtifactDir = $"executions/{id}/nodes/{Guid.NewGuid()}/"
-        };
-
-        db.NodeExecutions.Add(newNodeExec);
         execution.Status = WorkflowExecutionStatus.Running;
         await db.SaveChangesAsync(ct);
 
-        var endpoint = await _sendEndpoint.GetSendEndpoint(new Uri("queue:process-node"));
-        await endpoint.Send(new ProcessNodeCommand
-        {
-            WorkflowExecutionId = id,
-            NodeExecutionId = newNodeExec.Id,
-            NodeType = nodeDef?.NodeType ?? string.Empty,
-            InputArtifactPath = newNodeExec.InputArtifactPath ?? string.Empty,
-            OutputArtifactDir = newNodeExec.OutputArtifactDir ?? string.Empty,
-            ConfigJson = nodeDef?.ConfigJson ?? "{}",
-            TrimStartSeconds = nodeDef?.SourceNodeId == null ? execution.TrimStartSeconds : null,
-            TrimEndSeconds = nodeDef?.SourceNodeId == null ? execution.TrimEndSeconds : null
-        }, ct);
+        var newNodeExec = await _dispatcher.DispatchAsync(db, execution, nodeDefs, nodeDef, failedNode.Attempt + 1, ct);
+        if (newNodeExec is null)
+            return Conflict("Node could not be retried: it was already retried or its inputs are unavailable.");
 
         return Ok(NodeExecToDto(newNodeExec, nodeDef));
     }
@@ -217,40 +198,7 @@ public class ExecutionsController : ControllerBase
         return Ok(ToDto(execution));
     }
 
-    [HttpGet("{id:guid}/results")]
-    public async Task<ActionResult<List<string>>> GetResults(Guid id, CancellationToken ct)
-    {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-
-        var execution = await db.WorkflowExecutions
-            .Include(we => we.NodeExecutions)
-            .FirstOrDefaultAsync(we => we.Id == id && we.UserId == userId, ct);
-
-        if (execution is null) return NotFound();
-
-        var paths = execution.NodeExecutions
-            .Where(ne => ne.Status == NodeExecutionStatus.Completed && ne.OutputArtifactPathsJson != null)
-            .SelectMany(ne =>
-                JsonSerializer.Deserialize<Dictionary<string, string>>(ne.OutputArtifactPathsJson!)?.Values ?? Enumerable.Empty<string>())
-            .ToList();
-
-        return Ok(paths);
-    }
-
-    private static List<WorkflowNodeDefinition> DeserializeNodes(string json) =>
-        JsonSerializer.Deserialize<List<WorkflowNodeDefinition>>(json) ?? new();
-
-    private static string? ExtractModelName(string? configJson)
-    {
-        if (string.IsNullOrWhiteSpace(configJson)) return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(configJson);
-            return doc.RootElement.TryGetProperty("modelName", out var m) ? m.GetString() : null;
-        }
-        catch { return null; }
-    }
+    private static List<WorkflowNodeDefinition> DeserializeNodes(string json) => WorkflowJson.DeserializeNodes(json);
 
     private static WorkflowExecutionDto ToDto(WorkflowExecution we)
     {
@@ -280,18 +228,6 @@ public class ExecutionsController : ControllerBase
             we.TrimEndSeconds);
     }
 
-    private static NodeExecutionDto NodeExecToDto(NodeExecution ne, WorkflowNodeDefinition? def = null) => new(
-        ne.Id,
-        ne.WorkflowNodeId,
-        ne.Attempt,
-        ne.Status.ToString(),
-        ne.OutputArtifactDir,
-        ne.OutputArtifactPathsJson != null
-            ? JsonSerializer.Deserialize<Dictionary<string, string>>(ne.OutputArtifactPathsJson) ?? new()
-            : new(),
-        ne.ErrorMessage,
-        ne.StartedAt,
-        ne.CompletedAt,
-        def != null ? $"Node {def.Order + 1}" : null,
-        ExtractModelName(def?.ConfigJson));
+    private static NodeExecutionDto NodeExecToDto(NodeExecution ne, WorkflowNodeDefinition? def = null) =>
+        WorkflowMapping.ToDto(ne, def);
 }

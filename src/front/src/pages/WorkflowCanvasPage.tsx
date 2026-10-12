@@ -6,7 +6,6 @@ import {
   Background,
   Controls,
   MiniMap,
-  addEdge,
   applyNodeChanges,
   applyEdgeChanges,
   type Node,
@@ -22,15 +21,43 @@ import { useAuth } from '@/auth/useAuth';
 import { workflowsService } from '@/services/workflowsService';
 import { executionsService } from '@/services/executionsService';
 import { Button } from '@/components/ui/button';
-import AudioSeparationNode, {
-  NodeCallbacksContext,
-  type AudioSeparationNodeData,
-} from '@/components/AudioSeparationNode';
+import AudioSeparationNode from '@/components/AudioSeparationNode';
+import MergeNode from '@/components/MergeNode';
 import { NodeSidePanel } from '@/components/NodeSidePanel';
+import { MergeSidePanel } from '@/components/MergeSidePanel';
+import { NodeCallbacksContext } from '@/components/nodes/NodeCallbacksContext';
+import { AddNodeMenu } from '@/components/nodes/AddNodeMenu';
+import { ValidationPill } from '@/components/nodes/ValidationPill';
+import { ResultsToast } from '@/components/nodes/ResultsToast';
+import type { AudioSeparationNodeData, MergeNodeData } from '@/components/nodes/nodeData';
+import { outputColorHex } from '@/components/nodes/stemColors';
 import { ExecutionDrawer } from '@/components/execution/ExecutionDrawer';
 import { ExecuteTrimDialog } from '@/components/execution/ExecuteTrimDialog';
 import { useExecutionStream } from '@/hooks/useExecutionStream';
 import { applyNodeStatusEvent, upsertNodeExecution } from '@/lib/executionState';
+import { getStemsForModel } from '@/lib/models';
+import {
+  DEFAULT_MODEL,
+  collectRemoval,
+  connectionError,
+  defaultMergeLabel,
+  edgeId,
+  effectiveKeepState,
+  getMergeGains,
+  getModelName,
+  inHandleId,
+  inHandleIndex,
+  incomingEdges,
+  inputLabel,
+  inputsFromEdges,
+  keepSummary,
+  parseConfig,
+  removeGainAt,
+  removeMergeInput,
+  toggleKeep,
+  validateWorkflow,
+} from '@/lib/workflowGraph';
+import { MERGE_OUTPUT, type MergeConfig, type NodeType } from '@/types/workflow';
 import type { WorkflowNode } from '@/types/workflow';
 import type {
   WorkflowExecution,
@@ -41,7 +68,8 @@ import type {
 } from '@/types/execution';
 
 // ── React Flow node types registry ────────────────────────────────────────────
-const nodeTypes = { audioSeparation: AudioSeparationNode };
+const nodeTypes = { audioSeparation: AudioSeparationNode, merge: MergeNode };
+const rfTypeFor = (t: NodeType) => (t === 'Merge' ? 'merge' : 'audioSeparation');
 
 // ── Dagre layout (left → right) ───────────────────────────────────────────────
 const NODE_WIDTH = 288; // w-72
@@ -63,56 +91,68 @@ function layoutWithDagre(rfNodes: Node[], rfEdges: Edge[]): Node[] {
 }
 
 // ── Convert WorkflowNode[] → RF nodes + edges ─────────────────────────────────
+type NodeKind = WorkflowNode['nodeType'];
+
+function makeEdge(source: string, sourceHandle: string, target: string, idx: number): Edge {
+  return {
+    id: edgeId(source, sourceHandle, target, idx),
+    source,
+    sourceHandle,
+    target,
+    targetHandle: inHandleId(idx),
+    style: { stroke: outputColorHex(sourceHandle), strokeWidth: 2 },
+  };
+}
+
+function makeNodeData(n: WorkflowNode, idx: number): Record<string, unknown> {
+  const base = {
+    nodeId: n.id,
+    nodeType: n.nodeType,
+    configJson: n.configJson,
+    isRoot: n.inputs.length === 0,
+    nodeIndex: idx,
+    keptOutputs: n.keptOutputs,
+  };
+  // Merge's per-render fields (inputs, outputLabel) are derived in the page memo.
+  return (n.nodeType === 'Merge' ? { ...base, inputs: [], outputLabel: 'Mix' } : base) as Record<string, unknown>;
+}
+
 function toRF(workflowNodes: WorkflowNode[]): { rfNodes: Node[]; rfEdges: Edge[] } {
-  const rfNodes: Node[] = workflowNodes.map((n, idx) => {
-    const data: AudioSeparationNodeData = {
-      nodeId: n.id,
-      configJson: n.configJson,
-      isRoot: n.sourceNodeId === null,
-      nodeIndex: idx,
-    };
+  const rfNodes: Node[] = workflowNodes.map((n, idx) => ({
+    id: n.id,
+    type: rfTypeFor(n.nodeType),
+    position: { x: 0, y: 0 }, // overwritten by dagre
+    data: makeNodeData(n, idx),
+  }));
 
-    return {
-      id: n.id,
-      type: 'audioSeparation',
-      position: { x: 0, y: 0 }, // overwritten by dagre
-      data: data as unknown as Record<string, unknown>,
-    };
-  });
-
-  const rfEdges: Edge[] = workflowNodes
-    .filter((n) => n.sourceNodeId && n.sourceOutputName)
-    .map((n) => ({
-      id: `e-${n.sourceNodeId}-${n.sourceOutputName}-${n.id}`,
-      source: n.sourceNodeId!,
-      target: n.id,
-      sourceHandle: n.sourceOutputName!,
-      targetHandle: 'input',
-      style: { stroke: '#8b5cf6', strokeWidth: 2 },
-    }));
+  const rfEdges: Edge[] = workflowNodes.flatMap((n) =>
+    n.inputs.map((i, idx) => makeEdge(i.sourceNodeId, i.sourceOutputName, n.id, idx)),
+  );
 
   const laid = layoutWithDagre(rfNodes, rfEdges);
   return { rfNodes: laid, rfEdges };
 }
 
-// ── Convert RF state back → WorkflowNode[] (for save) ─────────────────────────
-function fromRF(rfNodes: Node[], rfEdges: Edge[], original: WorkflowNode[]): WorkflowNode[] {
-  const edgesByTarget = new Map<string, Edge>();
-  rfEdges.forEach((e) => edgesByTarget.set(e.target, e));
-
+// ── Convert RF state back → WorkflowNode[] (for validation + save) ────────────
+function fromRF(rfNodes: Node[], rfEdges: Edge[]): WorkflowNode[] {
   return rfNodes.map((rfn, idx) => {
-    const orig = original.find((o) => o.id === rfn.id);
-    const data = rfn.data as unknown as AudioSeparationNodeData;
-    const inEdge = edgesByTarget.get(rfn.id);
+    const data = rfn.data as unknown as AudioSeparationNodeData | MergeNodeData;
+    const nodeType: NodeKind = data.nodeType;
+    // Drop keeps for outputs the node no longer produces (e.g. after a model change).
+    const outputs = nodeType === 'Merge' ? [MERGE_OUTPUT as string] : getStemsForModel(getModelName(data));
     return {
       id: rfn.id,
       order: idx,
-      nodeType: orig?.nodeType ?? 'AudioSeparation',
-      configJson: data.configJson as unknown as string,
-      sourceNodeId: inEdge ? inEdge.source : null,
-      sourceOutputName: inEdge ? (inEdge.sourceHandle ?? null) : null,
+      nodeType,
+      configJson: data.configJson,
+      inputs: inputsFromEdges(rfEdges, rfn.id),
+      keptOutputs: data.keptOutputs.filter((o) => outputs.includes(o)),
     };
   });
+}
+
+function nodeTypeMap(rfNodes: Node[]): Map<string, NodeKind> {
+  return new Map(rfNodes.map((n) => [n.id, (n.data as unknown as { nodeType: NodeKind }).nodeType]));
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -130,8 +170,20 @@ export default function WorkflowCanvasPage() {
   const [rfNodes, setRfNodes] = useState<Node[]>([]);
   const [rfEdges, setRfEdges] = useState<Edge[]>([]);
 
-  // Keep a ref to original WorkflowNode[] so we can read nodeType on save
-  const originalNodesRef = useRef<WorkflowNode[]>([]);
+  // Handlers read the latest graph from refs (updated synchronously by commitGraph) so that
+  // several React Flow change events in one tick (node delete + its edge deletes) compose
+  // instead of acting on a stale snapshot.
+  const rfNodesRef = useRef<Node[]>([]);
+  const rfEdgesRef = useRef<Edge[]>([]);
+  const commitGraph = useCallback((nodes: Node[], edges: Edge[]) => {
+    rfNodesRef.current = nodes;
+    rfEdgesRef.current = edges;
+    setRfNodes(nodes);
+    setRfEdges(edges);
+  }, []);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [resultsToastFor, setResultsToastFor] = useState<string | null>(null);
+  const watchedExecRef = useRef<string | null>(null);
 
   // ── Execution state ──────────────────────────────────────────────────────
   const [activeExecution, setActiveExecution] = useState<WorkflowExecution | null>(null);
@@ -190,9 +242,15 @@ export default function WorkflowCanvasPage() {
     enabled: !!activeExecution && !isTerminal && isAuthenticated,
   });
 
-  // ── Overlay execution status onto React Flow nodes ───────────────────────
+  // ── Derived workflow graph (validation, keep state, merge labels) ─────────
+  const workflowNodes = useMemo(() => fromRF(rfNodes, rfEdges), [rfNodes, rfEdges]);
+  const issues = useMemo(() => validateWorkflow(workflowNodes, getStemsForModel), [workflowNodes]);
+  const keeps = useMemo(() => keepSummary(workflowNodes, getStemsForModel), [workflowNodes]);
+
+  // ── Overlay derived + execution status onto React Flow nodes ─────────────
   const rfNodesWithExec = useMemo(() => {
-    if (!activeExecution || nodeExecutions.length === 0) return rfNodes;
+    const issuesByNode = new Map<string, string[]>();
+    for (const i of issues) issuesByNode.set(i.nodeId, [...(issuesByNode.get(i.nodeId) ?? []), i.message]);
 
     // Build a map: workflowNodeId → NodeExecution
     const neMap = new Map<string, NodeExecution>();
@@ -204,28 +262,49 @@ export default function WorkflowCanvasPage() {
       if (ne.status === 'Completed') completedNodeIds.add(ne.workflowNodeId);
     }
 
-    return rfNodes.map((n) => {
+    return rfNodes.map((n, idx) => {
+      const wn = workflowNodes[idx];
+      const nodeData = n.data as unknown as AudioSeparationNodeData | MergeNodeData;
+      const outputs = wn.nodeType === 'Merge' ? [MERGE_OUTPUT as string] : getStemsForModel(getModelName(wn));
+      const keepStates = Object.fromEntries(outputs.map((o) => [o, effectiveKeepState(workflowNodes, wn.id, o)]));
+
+      const derived: Record<string, unknown> = {
+        nodeIndex: idx,
+        isRoot: wn.inputs.length === 0,
+        keepStates,
+        issues: issuesByNode.get(wn.id),
+      };
+      if (wn.nodeType === 'Merge') {
+        const gains = getMergeGains(wn.configJson, wn.inputs.length);
+        derived.inputs = wn.inputs.map((inp, i) => ({ label: inputLabel(workflowNodes, inp), gainDb: gains[i] }));
+        derived.outputLabel =
+          parseConfig<MergeConfig>(wn.configJson).label?.trim() || defaultMergeLabel(wn, workflowNodes);
+      }
+
+      if (!activeExecution || nodeExecutions.length === 0) {
+        return { ...n, data: { ...nodeData, ...derived } };
+      }
+
       const ne = neMap.get(n.id);
-      const nodeData = n.data as unknown as AudioSeparationNodeData;
 
       // A node can play if:
-      // - It's a root node (no parent), OR all parent nodes have completed
+      // - It's a root node (no parent), OR all parent nodes (every input source) have completed
       // - AND it's not currently running/pending
-      const parentEdge = rfEdges.find((e) => e.target === n.id);
-      const parentCompleted = !parentEdge || completedNodeIds.has(parentEdge.source);
+      const parentCompleted = wn.inputs.every((i) => completedNodeIds.has(i.sourceNodeId));
       const notBusy = !ne || (ne.status !== 'Running' && ne.status !== 'Pending');
       const canPlay = parentCompleted && notBusy;
 
       if (!ne) {
         return {
           ...n,
-          data: { ...(n.data as object), execCanPlay: canPlay && nodeData.isRoot },
+          data: { ...nodeData, ...derived, execCanPlay: canPlay && wn.inputs.length === 0 },
         };
       }
       return {
         ...n,
         data: {
-          ...(n.data as object),
+          ...nodeData,
+          ...derived,
           execStatus: ne.status,
           execStartedAt: ne.startedAt,
           execCompletedAt: ne.completedAt,
@@ -237,7 +316,27 @@ export default function WorkflowCanvasPage() {
         },
       };
     });
-  }, [rfNodes, rfEdges, activeExecution, nodeExecutions]);
+  }, [rfNodes, workflowNodes, issues, activeExecution, nodeExecutions]);
+
+  // ── Auto-open Results when a run we watched finishes ─────────────────────
+  // Only fires for a terminal transition observed live in this tab (never on page load of an
+  // already-finished run): watchedExecRef is armed only after seeing a non-terminal status.
+  useEffect(() => {
+    if (!activeExecution || !execStatus) return;
+    if (execStatus === 'Running' || execStatus === 'Pending') {
+      watchedExecRef.current = activeExecution.id;
+    } else if (
+      (execStatus === 'Completed' || execStatus === 'PartiallyFailed') &&
+      watchedExecRef.current === activeExecution.id
+    ) {
+      watchedExecRef.current = null;
+      setResultsToastFor(activeExecution.id);
+    }
+  }, [execStatus, activeExecution]);
+
+  const openResults = useCallback(() => {
+    if (resultsToastFor) navigate(`/executions/${resultsToastFor}/results`);
+  }, [navigate, resultsToastFor]);
 
   // ── Auth guard ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -279,39 +378,74 @@ export default function WorkflowCanvasPage() {
     }
   }, [latestExecution, activeExecution]);
 
-  const handleConfigChange = useCallback((nodeId: string, configJson: string) => {
-    setRfNodes((prev) =>
-      prev.map((n) =>
-        n.id === nodeId
-          ? { ...n, data: { ...(n.data as object), configJson } }
-          : n,
-      ),
+  const patchNodeData = useCallback((nodeId: string, patch: Record<string, unknown>) => {
+    commitGraph(
+      rfNodesRef.current.map((n) => (n.id === nodeId ? { ...n, data: { ...(n.data as object), ...patch } } : n)),
+      rfEdgesRef.current,
     );
     setSaved(false);
-  }, []);
+  }, [commitGraph]);
 
-  const handleRemoveNode = useCallback((nodeId: string) => {
-    // Collect node + all descendants using the current edges snapshot
-    const getDescendants = (startId: string, edges: Edge[]): Set<string> => {
-      const result = new Set<string>();
-      const queue = [startId];
-      while (queue.length) {
-        const cur = queue.shift()!;
-        result.add(cur);
-        edges.filter((e: Edge) => e.source === cur).forEach((e: Edge) => queue.push(e.target));
+  const handleConfigChange = useCallback(
+    (nodeId: string, configJson: string) => patchNodeData(nodeId, { configJson }),
+    [patchNodeData],
+  );
+
+  const handleToggleKeep = useCallback((nodeId: string, output: string) => {
+    const node = rfNodesRef.current.find((n) => n.id === nodeId);
+    if (!node) return;
+    const kept = (node.data as unknown as { keptOutputs: string[] }).keptOutputs;
+    patchNodeData(nodeId, { keptOutputs: toggleKeep(kept, output) });
+  }, [patchNodeData]);
+
+  // Remove inputs (by merge target + input index) from the current edge set, compacting the
+  // remaining input indices and the Merge's gains (descending so earlier indices stay valid).
+  const compactMergeInputs = useCallback(
+    (edges: Edge[], nodes: Node[], removals: { target: string; idx: number }[]): { edges: Edge[]; nodes: Node[] } => {
+      const sorted = [...removals].sort((a, b) => b.idx - a.idx);
+      let nextEdges = edges;
+      let nextNodes = nodes;
+      for (const { target, idx } of sorted) {
+        nextEdges = removeMergeInput(nextEdges, target, idx);
+        nextNodes = nextNodes.map((n) => {
+          if (n.id !== target) return n;
+          const d = n.data as unknown as MergeNodeData;
+          return { ...n, data: { ...d, configJson: removeGainAt(d.configJson, idx) } };
+        });
       }
-      return result;
-    };
+      return { edges: nextEdges, nodes: nextNodes };
+    },
+    [],
+  );
 
-    const descendants = getDescendants(nodeId, rfEdgesRef.current);
-    setRfNodes((prev) => prev.filter((n) => !descendants.has(n.id)));
-    setRfEdges((prev) => prev.filter((e: Edge) => !descendants.has(e.source) && !descendants.has(e.target)));
+  const handleRemoveInput = useCallback((nodeId: string, inputIndex: number) => {
+    const target = incomingEdges(rfEdgesRef.current, nodeId).find((e) => inHandleIndex(e.targetHandle) === inputIndex);
+    if (!target) return;
+    const edges = rfEdgesRef.current.filter((e) => e.id !== target.id);
+    const next = compactMergeInputs(edges, rfNodesRef.current, [{ target: nodeId, idx: inputIndex }]);
+    commitGraph(next.nodes, next.edges);
     setSaved(false);
-  }, []);
+  }, [commitGraph, compactMergeInputs]);
 
-  // Keep a ref to current edges so handleRemoveNode can read them
-  const rfEdgesRef = useRef<Edge[]>([]);
-  useEffect(() => { rfEdgesRef.current = rfEdges; }, [rfEdges]);
+  // Delete nodes. A Split fed by a removed node goes with it (as before); a Merge only loses
+  // that input (and is removed itself once it has none left).
+  const removeNodes = useCallback((ids: string[]) => {
+    const nodes = rfNodesRef.current;
+    const edges = rfEdgesRef.current;
+    const removed = collectRemoval(nodeTypeMap(nodes), edges, ids);
+    if (removed.size === 0) return;
+
+    const kept = edges.filter((e) => !removed.has(e.source) && !removed.has(e.target));
+    const lost = edges
+      .filter((e) => removed.has(e.source) && !removed.has(e.target))
+      .map((e) => ({ target: e.target, idx: inHandleIndex(e.targetHandle) }));
+    const next = compactMergeInputs(kept, nodes.filter((n) => !removed.has(n.id)), lost);
+    commitGraph(next.nodes, next.edges);
+    setSelectedNodeId((prev) => (prev && removed.has(prev) ? null : prev));
+    setSaved(false);
+  }, [commitGraph, compactMergeInputs]);
+
+  const handleRemoveNode = useCallback((nodeId: string) => removeNodes([nodeId]), [removeNodes]);
 
   // Seed RF state once per workflow id. Keyed on a ref (not rfNodes.length) so that emptying
   // the canvas without saving does not re-fire this and resurrect the deleted nodes from the
@@ -320,103 +454,129 @@ export default function WorkflowCanvasPage() {
   useEffect(() => {
     if (workflow && seededWorkflowRef.current !== workflow.id) {
       seededWorkflowRef.current = workflow.id;
-      originalNodesRef.current = workflow.nodes;
       const { rfNodes: n, rfEdges: e } = toRF(workflow.nodes);
-      setRfNodes(n);
-      setRfEdges(e);
+      commitGraph(n, e);
     }
-  }, [workflow]);
+  }, [workflow, commitGraph]);
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => {
-      setRfNodes((nds) => applyNodeChanges(changes, nds));
-      const removals = changes.filter((c) => c.type === 'remove');
-      if (removals.length > 0) {
-        const removedIds = new Set(removals.map((c) => c.id));
-        setRfEdges((eds) =>
-          eds.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)),
-        );
-        setSelectedNodeId((prev) => {
-          return prev && removedIds.has(prev) ? null : prev;
-        });
-        setSaved(false);
-      }
+      const removedIds = changes.filter((c) => c.type === 'remove').map((c) => c.id);
+      const rest = changes.filter((c) => c.type !== 'remove');
+      if (rest.length > 0) commitGraph(applyNodeChanges(rest, rfNodesRef.current), rfEdgesRef.current);
+      if (removedIds.length > 0) removeNodes(removedIds);
     },
-    [],
+    [commitGraph, removeNodes],
   );
   const onEdgesChange: OnEdgesChange = useCallback(
     (changes) => {
-      setRfEdges((eds) => applyEdgeChanges(changes, eds));
-      setSaved(false);
+      const current = rfEdgesRef.current;
+      // Ignore removals of edges already gone (a node delete also emits its edge removals).
+      const removals = changes
+        .filter((c) => c.type === 'remove')
+        .map((c) => current.find((e) => e.id === c.id))
+        .filter((e): e is Edge => !!e);
+      const applied = applyEdgeChanges(
+        changes.filter((c) => c.type !== 'remove' || current.some((e) => e.id === c.id)),
+        current,
+      );
+      const types = nodeTypeMap(rfNodesRef.current);
+      const mergeRemovals = removals
+        .filter((e) => types.get(e.target) === 'Merge')
+        .map((e) => ({ target: e.target, idx: inHandleIndex(e.targetHandle) }));
+      const next = compactMergeInputs(applied, rfNodesRef.current, mergeRemovals);
+      commitGraph(next.nodes, next.edges);
+      if (changes.some((c) => c.type === 'remove')) setSaved(false);
     },
+    [commitGraph, compactMergeInputs],
+  );
+
+  const isValidConnection = useCallback(
+    (c: Connection | Edge) =>
+      connectionError(nodeTypeMap(rfNodesRef.current), rfEdgesRef.current, {
+        source: c.source,
+        sourceHandle: c.sourceHandle,
+        target: c.target,
+        targetHandle: c.targetHandle,
+      }) === null,
     [],
   );
+
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
-      setRfEdges((eds) => {
-        // Remove any existing edge to the same target handle, then add new one
-        const filtered = eds.filter(
-          (e) => !(e.target === connection.target && e.targetHandle === connection.targetHandle),
-        );
-        const newEdge: Edge = {
-          ...connection,
-          id: `e-${connection.source}-${connection.sourceHandle}-${connection.target}`,
-          style: { stroke: '#8b5cf6', strokeWidth: 2 },
-        };
-        return addEdge(newEdge, filtered);
-      });
-      // Mark target node as non-root once it has an incoming connection
-      setRfNodes((nds) =>
-        nds.map((n) =>
-          n.id === connection.target ? { ...n, data: { ...n.data, isRoot: false } } : n,
-        ),
-      );
+      const types = nodeTypeMap(rfNodesRef.current);
+      const err = connectionError(types, rfEdgesRef.current, connection);
+      if (err) {
+        setConnectError(err);
+        return;
+      }
+      const incoming = incomingEdges(rfEdgesRef.current, connection.target);
+      let idx = 0;
+      let drop: Edge[] = incoming; // Split: a new connection replaces its single input
+      if (types.get(connection.target) === 'Merge') {
+        // Dropping on the empty slot appends; dropping on an occupied slot replaces that input.
+        idx = Math.min(inHandleIndex(connection.targetHandle), incoming.length);
+        drop = incoming.filter((e) => inHandleIndex(e.targetHandle) === idx);
+      }
+      const dropIds = new Set(drop.map((e) => e.id));
+      const edge = makeEdge(connection.source, connection.sourceHandle ?? '', connection.target, idx);
+      commitGraph(rfNodesRef.current, [...rfEdgesRef.current.filter((e) => !dropIds.has(e.id)), edge]);
       setSaved(false);
     },
-    [],
+    [commitGraph],
   );
 
-  const handleAddNode = useCallback(() => {
-    const newId = `new:${crypto.randomUUID()}`;
-    const data: AudioSeparationNodeData = {
-      nodeId: newId,
-      configJson: JSON.stringify({ modelName: 'htdemucs_ft.yaml' }),
-      isRoot: true,
-      nodeIndex: rfNodes.length,
+  const handleAddNode = useCallback((type: NodeType) => {
+    const nodes = rfNodesRef.current;
+    const wn: WorkflowNode = {
+      id: crypto.randomUUID(),
+      order: nodes.length,
+      nodeType: type,
+      configJson:
+        type === 'Merge'
+          ? JSON.stringify({ levelMode: 'preventClipping', inputGainsDb: [] } satisfies MergeConfig)
+          : JSON.stringify({ modelName: DEFAULT_MODEL }),
+      inputs: [],
+      keptOutputs: [],
     };
-    const maxX = rfNodes.length > 0 ? Math.max(...rfNodes.map((n) => n.position.x)) : -420;
+    const maxX = nodes.length > 0 ? Math.max(...nodes.map((n) => n.position.x)) : -420;
     const newNode: Node = {
-      id: newId,
-      type: 'audioSeparation',
+      id: wn.id,
+      type: rfTypeFor(type),
       position: { x: maxX + 420, y: 80 },
-      data: data as unknown as Record<string, unknown>,
+      data: makeNodeData(wn, nodes.length),
     };
-    setRfNodes((prev) => [...prev, newNode]);
+    commitGraph([...nodes, newNode], rfEdgesRef.current);
     setSaved(false);
-  }, [rfNodes]);
+  }, [commitGraph]);
+
+  // S / G add a Split / Merge while the canvas has focus (not while typing).
+  const onCanvasKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (e.key === 's' || e.key === 'S') handleAddNode('AudioSeparation');
+    else if (e.key === 'g' || e.key === 'G') handleAddNode('Merge');
+  }, [handleAddNode]);
+
+  // Transient connection-rejection notice.
+  useEffect(() => {
+    if (!connectError) return;
+    const t = setTimeout(() => setConnectError(null), 3000);
+    return () => clearTimeout(t);
+  }, [connectError]);
 
   const saveMutation = useMutation({
-    mutationFn: () => {
-      const workflowNodes = fromRF(rfNodes, rfEdges, originalNodesRef.current);
-      const isNew = (nodeId: string) => nodeId.startsWith('new:');
-      return workflowsService.update(id!, {
+    mutationFn: () =>
+      workflowsService.update(id!, {
         name: workflow!.name,
-        nodes: workflowNodes.map((n, i) => ({
-          id: isNew(n.id) ? undefined : n.id,
-          order: i,
-          nodeType: n.nodeType,
-          configJson: n.configJson,
-          sourceNodeId: n.sourceNodeId && isNew(n.sourceNodeId) ? null : n.sourceNodeId,
-          sourceOutputName: n.sourceOutputName,
-        })),
-      });
-    },
+        // Client-generated GUIDs are sent as-is, so edges between unsaved nodes round-trip.
+        nodes: workflowNodes,
+      }),
     onSuccess: (updated) => {
       queryClient.setQueryData(['workflow', id], updated);
-      originalNodesRef.current = updated.nodes;
       const { rfNodes: n, rfEdges: e } = toRF(updated.nodes);
-      setRfNodes(n);
-      setRfEdges(e);
+      commitGraph(n, e);
       setSaved(true);
     },
   });
@@ -542,33 +702,44 @@ export default function WorkflowCanvasPage() {
           {!saved && (
             <span className="text-xs text-amber-600 font-medium shrink-0">● Unsaved</span>
           )}
+          {/* Keep summary + validation */}
+          <span
+            className="text-xs font-medium text-amber-700 shrink-0 hidden md:inline"
+            title={keeps.items.length ? keeps.items.map((i) => `${i.nodeLabel} · ${i.output}`).join('\n') : 'Nothing kept yet'}
+          >
+            📌 {keeps.mode === 'explicit' ? `${keeps.items.length} kept` : `auto: ${keeps.items.length} terminal`}
+          </span>
+          <ValidationPill issues={issues} onSelectNode={setSelectedNodeId} />
           {/* Running indicator */}
           {isRunning && (
             <span className="text-xs text-blue-600 font-medium shrink-0 animate-pulse">● Running</span>
           )}
           <div className="flex items-center gap-2 shrink-0">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleAddNode}
+            <AddNodeMenu
+              onAdd={handleAddNode}
               disabled={isRunning}
-              title={isRunning ? 'Editing is disabled while an execution is running' : undefined}
-            >
-              + Add Node
-            </Button>
+              disabledTitle="Editing is disabled while an execution is running"
+            />
             <Button
               variant="outline"
               size="sm"
               onClick={() => saveMutation.mutate()}
-              disabled={saveMutation.isPending || saved || isRunning}
-              title={isRunning ? 'Saving is disabled while an execution is running' : undefined}
+              disabled={saveMutation.isPending || saved || isRunning || issues.length > 0}
+              title={
+                isRunning
+                  ? 'Saving is disabled while an execution is running'
+                  : issues.length > 0
+                    ? `Fix before saving:\n${issues.map((i) => i.message).join('\n')}`
+                    : undefined
+              }
             >
               {saveMutation.isPending ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
             </Button>
             <Button
               size="sm"
               onClick={() => setShowExecuteDialog(true)}
-              disabled={isRunning}
+              disabled={isRunning || issues.length > 0}
+              title={issues.length > 0 ? `Fix before executing:\n${issues.map((i) => i.message).join('\n')}` : undefined}
             >
               ⚡ Execute
             </Button>
@@ -587,7 +758,8 @@ export default function WorkflowCanvasPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => reRunMutation.mutate()}
-                disabled={reRunMutation.isPending}
+                disabled={reRunMutation.isPending || issues.length > 0}
+                title={issues.length > 0 ? `Fix before executing:\n${issues.map((i) => i.message).join('\n')}` : undefined}
               >
                 {reRunMutation.isPending ? 'Starting…' : '↻ Re-run'}
               </Button>
@@ -615,8 +787,16 @@ export default function WorkflowCanvasPage() {
       <main className="flex-1 flex overflow-hidden" style={{ minHeight: 0 }}>
         {/* Canvas */}
         <div className="flex-1 relative overflow-hidden">
-          <NodeCallbacksContext.Provider value={{ onConfigChange: handleConfigChange, onRemove: handleRemoveNode, onPlayNode: handlePlayNode }}>
-            <div style={{ position: 'absolute', inset: 0 }}>
+          <NodeCallbacksContext.Provider
+            value={{
+              onConfigChange: handleConfigChange,
+              onRemove: handleRemoveNode,
+              onPlayNode: handlePlayNode,
+              onToggleKeep: handleToggleKeep,
+              onRemoveInput: handleRemoveInput,
+            }}
+          >
+            <div style={{ position: 'absolute', inset: 0 }} onKeyDown={isRunning ? undefined : onCanvasKeyDown}>
             <ReactFlow
               nodes={rfNodesWithExec}
               edges={rfEdges}
@@ -624,6 +804,7 @@ export default function WorkflowCanvasPage() {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              isValidConnection={isValidConnection}
               onNodeClick={(_evt, node) => setSelectedNodeId(node.id)}
               onPaneClick={() => setSelectedNodeId(null)}
               fitView
@@ -633,7 +814,10 @@ export default function WorkflowCanvasPage() {
             >
               <Background color="#d1d5db" gap={28} size={1} />
               <Controls />
-              <MiniMap nodeColor="#8b5cf6" maskColor="rgba(0,0,0,0.05)" />
+              <MiniMap
+                nodeColor={(n) => ((n.data as { nodeType?: string }).nodeType === 'Merge' ? '#0d9488' : '#8b5cf6')}
+                maskColor="rgba(0,0,0,0.05)"
+              />
             </ReactFlow>
             </div>
           </NodeCallbacksContext.Provider>
@@ -642,22 +826,44 @@ export default function WorkflowCanvasPage() {
           {rfNodes.length === 0 && (
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               <p className="text-sm text-muted-foreground">No nodes yet.</p>
-              <p className="text-xs mt-1 text-muted-foreground">Click "+ Add Node" in the header to get started.</p>
+              <p className="text-xs mt-1 text-muted-foreground">Use "+ Add Node" in the header (or press S / G) to get started.</p>
             </div>
           )}
         </div>
 
         {/* Right side panel — shown when a node is selected */}
         {selectedNodeId && (() => {
-          const selNode = rfNodes.find((n) => n.id === selectedNodeId);
-          if (!selNode) return null;
-          const nodeData = selNode.data as unknown as AudioSeparationNodeData;
+          const selIdx = rfNodesWithExec.findIndex((n) => n.id === selectedNodeId);
+          if (selIdx < 0) return null;
+          const selNode = rfNodesWithExec[selIdx];
+          const nodeData = selNode.data as unknown as AudioSeparationNodeData | MergeNodeData;
+          if (nodeData.nodeType === 'Merge') {
+            const md = nodeData as MergeNodeData;
+            return (
+              <MergeSidePanel
+                key={selectedNodeId}
+                nodeId={selectedNodeId}
+                nodeIndex={md.nodeIndex}
+                configJson={md.configJson}
+                inputLabels={md.inputs.map((i) => i.label)}
+                defaultLabel={defaultMergeLabel(workflowNodes[selIdx], workflowNodes)}
+                onConfigChange={handleConfigChange}
+                onRemoveInput={handleRemoveInput}
+                onClose={() => setSelectedNodeId(null)}
+              />
+            );
+          }
           return (
             <NodeSidePanel
               key={selectedNodeId}
               nodeId={selectedNodeId}
-              nodeIndex={nodeData.nodeIndex as number}
-              configJson={nodeData.configJson as unknown as string}
+              nodeIndex={nodeData.nodeIndex}
+              configJson={nodeData.configJson}
+              outputs={getStemsForModel(getModelName(nodeData)).map((name) => ({
+                name,
+                state: nodeData.keepStates?.[name] ?? 'none',
+              }))}
+              onToggleKeep={handleToggleKeep}
               onConfigChange={handleConfigChange}
               onClose={() => setSelectedNodeId(null)}
             />
@@ -668,6 +874,7 @@ export default function WorkflowCanvasPage() {
       {/* Execution Drawer */}
       {showDrawer && activeExecution && (
         <ExecutionDrawer
+          executionId={activeExecution.id}
           nodeExecutions={nodeExecutions}
           workflowNodes={workflow.nodes}
           executionStatus={currentExecStatus}
@@ -678,6 +885,18 @@ export default function WorkflowCanvasPage() {
           onReRun={() => reRunMutation.mutate()}
           onClose={() => setShowDrawer(false)}
         />
+      )}
+
+      {/* Connection rejected */}
+      {connectError && (
+        <div role="alert" className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-amber-50 border border-amber-200 px-4 py-2 text-amber-800 text-sm shadow-md z-50">
+          {connectError}
+        </div>
+      )}
+
+      {/* Auto-open Results */}
+      {resultsToastFor && resultsToastFor === activeExecution?.id && (execStatus === 'Completed' || execStatus === 'PartiallyFailed') && (
+        <ResultsToast onOpen={openResults} onStay={() => setResultsToastFor(null)} />
       )}
 
       {/* Save error */}

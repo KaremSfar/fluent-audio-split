@@ -32,11 +32,14 @@ This is the **Python background worker** for **Fluent Audio Split**. It consumes
 src/audio-separation-worker/
 ├── Dockerfile
 ├── requirements.txt
+├── requirements-dev.txt        ← Test deps (pytest, numpy, soundfile, kombu); needs ffmpeg on PATH
+├── tests/                      ← pytest: test_merge.py, test_handlers_merge.py (synthetic audio)
 ├── run_consumer.py             ← Entry point for the kombu consumer
 └── app/
     ├── model_registry.json     ← Single source of truth: model → stems + stem_map (SDK-real names)
     ├── model_registry.py       ← get_model_entry(modelName) — loads/validates model_registry.json, no fallback
-    ├── handlers.py             ← handle_process_node() dispatch + _handle_audio_separation()
+    ├── handlers.py             ← handle_process_node() dispatch + _handle_audio_separation() + _handle_merge()
+    ├── merge.py                ← merge_stems(): ffmpeg decode → gain → sum → level handling → FLAC PCM_24
     ├── validation.py           ← SeparationValidator — advancedParams key sanity-checks only
     ├── consumer.py             ← MassTransitConsumer (kombu ConsumerMixin)
     ├── publisher.py            ← publish_node_started / publish_node_completed / publish_node_failed
@@ -59,8 +62,7 @@ kombu MassTransitConsumer
   → extracts payload, calls handle_process_node(payload, storage)
 
 handle_process_node (handlers.py)
-  → dispatches by nodeType == "AudioSeparation"
-  → calls _handle_audio_separation(payload, storage)
+  → dispatches by nodeType: "AudioSeparation" → _handle_audio_separation, "Merge" → _handle_merge
 
 _handle_audio_separation
   → resolves model filename from configJson.modelName
@@ -166,6 +168,31 @@ output_files: list[str] = separator.separate(str(abs_input), output_names)
 }
 ```
 
+### Merge node (nodeType `"Merge"`)
+
+CPU-only (numpy + ffmpeg decode), never uses the remote separator. `inputArtifactPath` is `""`; inputs come in
+`inputArtifacts` (ordered, camelCase):
+```json
+{
+  "nodeType": "Merge",
+  "inputArtifactPath": "",
+  "inputArtifacts": [
+    {"path": "executions/E/nodes/A/vocals_1a2b3.mp3", "label": "Vocals", "gainDb": 0.0},
+    {"path": "executions/E/nodes/B/bass_9f8e7.mp3",   "label": "Bass",   "gainDb": -3.0}
+  ],
+  "outputArtifactDir": "executions/E/nodes/C/",
+  "configJson": "{\"levelMode\":\"preventClipping\",\"ceilingDb\":-1}"
+}
+```
+- `configJson.levelMode`: `preventClipping` (default; scale down only if peak > ceiling) / `normalizePeak`
+  (always scale peak to ceiling) / `none` (hard clip + warning). `ceilingDb` defaults to `-1`.
+- Algorithm (`app/merge.py`): decode each input to stereo float32 at the **first input's sample rate** (mono is
+  duplicated at unity), apply per-input gain, zero-pad shorter inputs to the longest, sum, level, write
+  `mix_{nodeExecId[:5]}.flac` (FLAC, PCM_24) into `outputArtifactDir`.
+- Success -> `NodeCompleted` with `{"Mix": "<relative path>"}` (same relative-path rules as separation outputs).
+- Validation: needs `>= 2` inputs and a valid `levelMode`; otherwise `NodeFailed` with `isTransient=false`.
+  `isTransient` is true only for `OSError` (incl. a missing input file: shared-volume lag).
+
 File paths in all messages are **relative to the shared storage base path** — never absolute.
 
 ---
@@ -182,6 +209,14 @@ File paths in all messages are **relative to the shared storage base path** — 
 | `SHARED_DATA_PATH` | `/data` | Mount point for shared audio files |
 
 ---
+
+## Tests
+
+```bash
+cd src/audio-separation-worker
+pip install -r requirements-dev.txt   # light; requires ffmpeg/ffprobe on PATH
+python -m pytest
+```
 
 ## How to Run Locally
 

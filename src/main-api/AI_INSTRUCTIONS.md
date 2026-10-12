@@ -43,7 +43,8 @@ src/main-api/
 │   │   └── NodeFailedConsumer.cs            ← MassTransit: handles NodeFailedEvent
 │   ├── Controllers/
 │   │   ├── AuthController.cs               ← POST /api/auth/register, POST /api/auth/login
-│   │   ├── ExecutionsController.cs         ← /api/executions (CRUD + SSE stream + retry)
+│   │   ├── ExecutionsController.cs         ← /api/executions (CRUD + SSE stream + retry + cancel)
+│   │   ├── ExecutionResultsController.cs   ← /api/executions/{id}/results (+ /tracks add/remove)
 │   │   ├── FilesController.cs              ← /api/files (upload, list, delete, download)
 │   │   ├── ModelsController.cs             ← GET /api/models (list available models + stems)
 │   │   └── WorkflowsController.cs          ← /api/workflows (CRUD + execute)
@@ -56,7 +57,10 @@ src/main-api/
 │   │   ├── NodeFailedEvent.cs              ← Published by Python worker on failure
 │   │   └── ProcessNodeCommand.cs           ← Sent to queue:process-node to trigger Python worker
 │   ├── Services/
-│   │   └── ExecutionEventBus.cs            ← Singleton SSE event bus (ConcurrentDictionary + Channel)
+│   │   ├── ExecutionEventBus.cs            ← Singleton SSE event bus (ConcurrentDictionary + Channel)
+│   │   ├── NodeDispatcher.cs               ← ONLY place that builds NodeExecution + ProcessNodeCommand (+ input resolution / Merge join)
+│   │   ├── ResultTrackService.cs           ← Seeds/queries/edits ResultTrack rows, builds ExecutionResultsDto
+│   │   └── WorkflowMapping.cs              ← Shared entity → DTO mapping
 │   ├── Program.cs                           ← Entry point; delegates to Startup
 │   ├── Startup.cs                           ← ConfigureServices + Configure
 │   └── appsettings.json
@@ -72,22 +76,27 @@ src/main-api/
 │
 ├── FluentAudioSplit.Domain/                 ← Class library: entities + enums
 │   ├── Models/
-│   │   └── StemDefinitions.cs              ← Static model→stems registry
+│   │   ├── StemDefinitions.cs              ← Static model→stems registry
+│   │   ├── NodeTypes.cs                    ← "AudioSeparation" | "Merge", Merge output name "Mix"
+│   │   ├── WorkflowNodeDefinition.cs       ← Node in StructureJson: Id, Order, NodeType, ConfigJson, Inputs[], KeptOutputs[]
+│   │   ├── MergeNodeConfig.cs              ← Merge ConfigJson shape (label, inputGainsDb, levelMode, ceilingDb)
+│   │   ├── WorkflowGraph.cs                ← Pure: Validate (V1–V9), Dependents, IsConsumed, HasExplicitKeeps
+│   │   └── WorkflowJson.cs                 ← camelCase (de)serialization of StructureJson
 │   └── Entities/
 │       ├── ApplicationUser.cs              ← Extends IdentityUser
 │       ├── FileRecord.cs                   ← Uploaded audio file metadata
-│       ├── NodeExecution.cs                ← Single node run within a WorkflowExecution
+│       ├── NodeExecution.cs                ← Single node run within a WorkflowExecution (NodeType, InputArtifactPath / InputArtifactsJson)
+│       ├── ResultTrack.cs                  ← A stem in an execution's results (Kept | Default | Manual)
 │       ├── NodeExecutionStatus.cs          ← Enum: Pending, Queued, Running, Completed, Failed, Cancelled
 │       ├── Workflow.cs                     ← Workflow template (has Nodes collection)
 │       ├── WorkflowExecution.cs            ← A run of a Workflow against an input file
 │       ├── WorkflowExecutionStatus.cs      ← Enum: Pending, Running, Completed, PartiallyFailed, Failed, Cancelled
-│       └── WorkflowNode.cs                 ← A step definition: model, SourceNodeId?, SourceOutputName?
 │
 └── FluentAudioSplit.Infrastructure/        ← Class library: EF Core, storage
     ├── Persistence/
     │   ├── ApplicationDbContext.cs         ← IdentityDbContext<ApplicationUser> with all DbSets
     │   ├── MigrationsService.cs            ← IHostedService: runs MigrateAsync on startup
-    │   └── Migrations/                     ← EF Core migrations (InitialCreate + AddWorkflowEngine)
+    │   └── Migrations/                     ← EF Core migrations (single fresh InitialCreate; DB was reset for the Merge/Results release)
     └── Storage/
         ├── IFileStorageProvider.cs         ← Abstraction: Read/Write/Exists/List/Delete
         └── LocalFileStorageProvider.cs     ← Local filesystem implementation
@@ -105,6 +114,13 @@ dotnet run
 ```
 
 ---
+
+## Tests
+
+```bash
+cd src/main-api && dotnet test      # FluentAudioSplit.Tests (xUnit): WorkflowGraph, consumer/join (incl. concurrent
+                                    # Merge-parent completion), ResultTrackService, controllers. Uses a temp SQLite file with real migrations.
+```
 
 ## How to Add EF Migrations
 
@@ -164,7 +180,9 @@ Tokens expire after **1 hour**. Include in requests as: `Authorization: Bearer <
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/api/workflows` | Create workflow with nodes |
+| `POST` | `/api/workflows` | Create workflow with nodes (validated; 400 `ValidationProblemDetails` with `errors.nodes`) |
+| `PATCH` | `/api/workflows/{id}` | New version; client-supplied node ids are kept as given |
+| `POST` | `/api/workflows/{id}/execute` | Validates, seeds explicit keeps, dispatches root nodes |
 | `GET` | `/api/workflows` | List current user's workflows |
 | `GET` | `/api/workflows/{id}` | Get single workflow with nodes |
 | `DELETE` | `/api/workflows/{id}` | Delete workflow |
@@ -173,9 +191,18 @@ Tokens expire after **1 hour**. Include in requests as: `Authorization: Bearer <
 ```json
 {
   "name": "My Pipeline",
-  "nodes": [{ "order": 0, "nodeType": "StemSplit", "configJson": "{}" }]
+  "nodes": [
+    { "id": "<client guid>", "order": 0, "nodeType": "AudioSeparation", "configJson": "{\"modelName\":\"htdemucs_ft.yaml\"}",
+      "inputs": [], "keptOutputs": ["Drums"] },
+    { "id": "<client guid>", "order": 1, "nodeType": "Merge", "configJson": "{\"label\":\"Mix\",\"inputGainsDb\":[0,-3]}",
+      "inputs": [{ "sourceNodeId": "<guid>", "sourceOutputName": "Vocals" }, { "sourceNodeId": "<guid>", "sourceOutputName": "Bass" }],
+      "keptOutputs": ["Mix"] }
+  ]
 }
 ```
+
+Graph model: a node has `inputs[]` (multi-input). `AudioSeparation` has 0–1 inputs (0 = uploaded file), `Merge` has 2–8 and always
+outputs `"Mix"`. `keptOutputs` pins outputs as results. Rules V1–V9 live in `WorkflowGraph.Validate` (mirrored in the frontend).
 
 ---
 
@@ -188,7 +215,9 @@ Tokens expire after **1 hour**. Include in requests as: `Authorization: Bearer <
 | `GET` | `/api/executions/{id}` | Get execution detail |
 | `GET` | `/api/executions/{id}/stream` | SSE stream of execution events |
 | `POST` | `/api/executions/{id}/nodes/{nodeExecId}/retry` | Retry a failed node (creates new `NodeExecution`) |
-| `GET` | `/api/executions/{id}/results` | List output artifact dirs of completed nodes |
+| `GET` | `/api/executions/{id}/results` | `ExecutionResultsDto`: tracks (with resolved state/path) + available stems |
+| `POST` | `/api/executions/{id}/results/tracks` | Add a manual track `{ workflowNodeId, outputName }` → 201 / 409 duplicate / 400 not a completed output |
+| `DELETE` | `/api/executions/{id}/results/tracks/{trackId}` | Remove a track → 204 |
 
 ---
 
@@ -230,8 +259,13 @@ Extends `IdentityUser`. Adds `CreatedAt` timestamp.
 ### Workflow
 Template owned by a user. Has `ICollection<WorkflowNode> Nodes`.
 
-### WorkflowNode
-A single step definition in a Workflow: `Order`, `NodeType`, `ConfigJson`.
+### Workflow nodes
+There is no `WorkflowNode` entity: nodes are `WorkflowNodeDefinition` objects serialized (camelCase) into `WorkflowVersion.StructureJson`.
+
+### ResultTrack
+`(WorkflowExecutionId, WorkflowNodeId, OutputName)` unique. `Origin`: `Kept` (seeded at execute from `keptOutputs`),
+`Default` (added on node completion when NO node has explicit keeps: every output nobody consumes), `Manual` (added via API).
+The artifact path is resolved at query time from the latest attempt, so retries are reflected automatically.
 
 ### FileRecord
 Uploaded audio file metadata: `OriginalFileName`, `StoragePath` (relative), `ContentType`, `SizeBytes`.
@@ -240,7 +274,9 @@ Uploaded audio file metadata: `OriginalFileName`, `StoragePath` (relative), `Con
 A single run of a Workflow against an input `FileRecord`. Status progresses: `Pending → Running → Completed | PartiallyFailed | Failed | Cancelled`.
 
 ### NodeExecution
-A single step execution within a `WorkflowExecution`. Tracks `InputArtifactPath`, `OutputArtifactDir`, `Attempt`, `Status`, timestamps.
+A single step execution within a `WorkflowExecution`. Tracks `NodeType`, `InputArtifactPath` (Split) / `InputArtifactsJson` (Merge),
+`OutputArtifactDir`, `Attempt`, `Status`, timestamps. Unique index `(WorkflowExecutionId, WorkflowNodeId, Attempt)` is the
+race-safety backstop for dispatch.
 
 ### WorkflowExecutionStatus
 `Pending, Running, Completed, PartiallyFailed, Failed, Cancelled`
@@ -253,10 +289,9 @@ A single step execution within a `WorkflowExecution`. Tracks `InputArtifactPath`
 ## Architecture: Execution Flow
 
 ```
-Frontend POSTs /api/executions/workflows/{id}/execute
-  → API creates WorkflowExecution (Pending) + NodeExecution (Queued) for first node
-  → Sends ProcessNodeCommand to queue:process-node
-  → Sets WorkflowExecution.Status = Running
+Frontend POSTs /api/workflows/{id}/execute
+  → API validates the graph, creates WorkflowExecution (Running), seeds Kept ResultTracks
+  → NodeDispatcher creates a NodeExecution (Queued) + sends ProcessNodeCommand for each ROOT node
   → Returns WorkflowExecutionDto
 
 Python worker processes audio
@@ -264,7 +299,13 @@ Python worker processes audio
 
 NodeCompletedConsumer (MassTransit)
   → Updates NodeExecution.Status = Completed, sets OutputArtifactDir
-  → If all NodeExecutions completed → sets WorkflowExecution.Status = Completed
+  → Default-mode: inserts Default ResultTracks for unconsumed outputs
+  → For each dependent node: join check (every input's source latest attempt Completed AND the named output exists)
+      · inputs not all ready  → wait (a later parent completion re-checks)
+      · named output missing  → dependent is recorded Failed (no "first output" fallback)
+      · otherwise             → NodeDispatcher.DispatchAsync (race-safe via the unique index; a losing concurrent
+                                 consumer's insert fails and is skipped → exactly one Merge execution)
+  → ExecutionReconciler settles the terminal status once nothing is in flight
   → Publishes to ExecutionEventBus (SSE subscribers notified)
 
 NodeFailedConsumer (MassTransit)
@@ -291,12 +332,15 @@ Frontend GET /api/executions/{id}/stream (SSE)
 {
   "workflowExecutionId": "guid",
   "nodeExecutionId": "guid",
-  "nodeType": "StemSplit",
-  "inputArtifactPath": "uploads/userId/fileId/audio.wav",
+  "nodeType": "AudioSeparation | Merge",
+  "inputArtifactPath": "uploads/userId/fileId/audio.wav",   // AudioSeparation only ("" for Merge)
+  "inputArtifacts": [{ "path": "...", "label": "Vocals", "gainDb": 0.0 }],   // Merge only, ordered as node inputs
   "outputArtifactDir": "executions/execId/nodes/nodeId/",
-  "configJson": "{}"
+  "configJson": "{}",
+  "trimStartSeconds": null, "trimEndSeconds": null           // root AudioSeparation only
 }
 ```
+Always build commands through `NodeDispatcher` — never inline.
 
 ### NodeCompletedEvent (published by Python worker → consumed by NodeCompletedConsumer)
 ```json
@@ -336,7 +380,7 @@ File paths are **relative to the shared storage base path**, never absolute.
 3. **JWT expiry:** 1-hour access tokens.
 4. **Async/await everywhere.** No blocking calls (`Task.Result`, `.Wait()`, `GetAwaiter().GetResult()`).
 5. **Do NOT roll custom password hashing.** Use ASP.NET Identity (`UserManager`, `SignInManager`).
-6. **All controllers** use `[Route("api/[controller]")]` prefix (except `ExecutionsController` which uses `[Route("api/executions")]`).
+6. **All controllers** use `[Route("api/[controller]")]` prefix (except `ExecutionsController` / `ExecutionResultsController` which use `api/executions...`).
 7. **Startup class pattern** — `Program.cs` delegates to `Startup.ConfigureServices` and `Startup.Configure`. Do NOT collapse back to minimal API style.
 
 ---

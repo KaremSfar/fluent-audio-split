@@ -17,4 +17,5 @@ public class WorkflowExecution
     public DateTime? CompletedAt { get; set; }
     public string? ErrorMessage { get; set; }
     public ICollection<NodeExecution> NodeExecutions { get; set; } = new List<NodeExecution>();
+    public ICollection<ResultTrack> ResultTracks { get; set; } = new List<ResultTrack>();
 }
