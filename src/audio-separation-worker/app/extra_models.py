@@ -30,6 +30,17 @@ EXTRA_MODELS: dict[str, tuple[str, str, list[str]]] = {
         ["gilliaan/CenterWide-Models/resolve/main/BandSplitRoformer/gilliaan_bsroformer_centerwide_v3beta.ckpt",
          "gilliaan/CenterWide-Models/resolve/main/BandSplitRoformer/gilliaan_bsroformer_centerwide_v3beta.yaml"],
     ),
+    # MVSep Mega 53 re-hosted as one single-stem BS-Roformer per instrument (original: ZFTurbo/MSST v1.0.21).
+    "bs_roformer_mega53_violin_mvsep.ckpt": (
+        "MVSep Mega 53 - Violin (BS-Roformer)", "MDXC",
+        ["noblebarkrr/BS-Roformer-MVSep-Mega-53-stems/resolve/main/v1/bs_mega_53stem_violin_mvsep.ckpt",
+         "noblebarkrr/BS-Roformer-MVSep-Mega-53-stems/resolve/main/v1/bs_mega_53stem_violin_mvsep_config.yaml"],
+    ),
+    "bs_roformer_mega53_saxophone_mvsep.ckpt": (
+        "MVSep Mega 53 - Saxophone (BS-Roformer)", "MDXC",
+        ["noblebarkrr/BS-Roformer-MVSep-Mega-53-stems/resolve/main/v1/bs_mega_53stem_saxophone_mvsep.ckpt",
+         "noblebarkrr/BS-Roformer-MVSep-Mega-53-stems/resolve/main/v1/bs_mega_53stem_saxophone_mvsep_config.yaml"],
+    ),
 }
 
 _installed = False

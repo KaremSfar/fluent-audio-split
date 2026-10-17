@@ -2430,5 +2430,41 @@
       "Center",
       "Wide"
     ]
+  },
+  "bs_roformer_mega53_violin_mvsep.ckpt": {
+    "arch": "mdxc",
+    "category": "specialty",
+    "label": "MVSep Mega 53 - Violin (BS-Roformer)",
+    "real_stems": [
+      "violin",
+      "other"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Violin": "violin",
+      "Other": "other"
+    },
+    "stems": [
+      "Violin",
+      "Other"
+    ]
+  },
+  "bs_roformer_mega53_saxophone_mvsep.ckpt": {
+    "arch": "mdxc",
+    "category": "specialty",
+    "label": "MVSep Mega 53 - Saxophone (BS-Roformer)",
+    "real_stems": [
+      "saxophone",
+      "other"
+    ],
+    "status": "ok",
+    "stem_map": {
+      "Saxophone": "saxophone",
+      "Other": "other"
+    },
+    "stems": [
+      "Saxophone",
+      "Other"
+    ]
   }
 }
