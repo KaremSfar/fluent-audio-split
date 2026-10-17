@@ -8,7 +8,7 @@ import { executionsService } from '@/services/executionsService';
 import { workflowsService } from '@/services/workflowsService';
 import { filesService } from '@/services/filesService';
 import { useExecutionStream } from '@/hooks/useExecutionStream';
-import { Keyboard } from 'lucide-react';
+import { Download, Keyboard, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { StatusBadge } from '@/components/execution/StatusBadge';
@@ -26,6 +26,7 @@ import { LanesOverlay } from '@/components/daw/LanesOverlay';
 import { useDawShortcuts } from '@/components/daw/useDawShortcuts';
 import { useMeters } from '@/components/daw/useMeters';
 import { anySoloed, isAudible, trackMix, useMixerState } from '@/components/daw/useMixerState';
+import { encodeMp3, encodeWav16, renderMixdown, type MixSource } from '@/components/daw/mixdown';
 import { Metronome, TapTempo, clampBpm, type MetronomeSettings } from '@/components/daw/metronome';
 import {
   barRegion,
@@ -501,6 +502,38 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
   const empty = tracks.length === 0;
   const wide = useWideLayout();
 
+  // ── Export: render the mix as heard (faders, mute/solo, master) to a WAV download ──
+  const [exportFormat, setExportFormat] = useState<'wav' | 'mp3'>('wav');
+  const [exporting, setExporting] = useState(false);
+  const exportMix = useCallback(async () => {
+    const sources = new Map<string, MixSource>();
+    for (const t of readyTracks) {
+      const b = engine.getBuffer(t.id);
+      if (b) sources.set(t.id, b);
+    }
+    const mix = renderMixdown(sources, mixer, readyTracks.map((t) => t.id));
+    if (!mix) {
+      announce('Nothing to export: no audible tracks');
+      return;
+    }
+    setExporting(true);
+    try {
+      const blob = exportFormat === 'mp3' ? await encodeMp3(mix) : encodeWav16(mix);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName.replace(/\.[^.]+$/, '')} - mix.${exportFormat}`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      announce(`Exported ${mix.included.length} ${mix.included.length === 1 ? 'track' : 'tracks'} as ${exportFormat.toUpperCase()}`);
+    } catch {
+      announce('Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }, [engine, readyTracks, mixer, fileName, announce, exportFormat]);
+  const canExport = !loadingAny && readyTracks.some((t) => isAudible(mixer, t.id));
+
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       <AppHeader onLogoClick={() => navigate('/dashboard')}>
@@ -514,6 +547,27 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
             <h1 className="text-2xl font-bold tracking-tight">{results.workflowName}</h1>
             <StatusBadge status={liveStatus} />
             {duration > 0 && <span className="text-sm text-muted-foreground">{Math.floor(duration / 60)}:{String(Math.floor(duration % 60)).padStart(2, '0')}</span>}
+            <div className="ml-auto flex items-center gap-1.5">
+              <select
+                value={exportFormat}
+                onChange={(e) => setExportFormat(e.target.value as 'wav' | 'mp3')}
+                aria-label="Export format"
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="wav">WAV</option>
+                <option value="mp3">MP3 (192 kbps)</option>
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void exportMix()}
+                disabled={!canExport || exporting}
+                title="Download the mix as heard: audible tracks at their fader levels, plus master volume"
+              >
+                {exporting ? <Loader2 className="mr-1.5 size-4 animate-spin" aria-hidden="true" /> : <Download className="mr-1.5 size-4" aria-hidden="true" />}
+                {exporting ? 'Exporting…' : 'Export mix'}
+              </Button>
+            </div>
           </div>
           <p className="text-sm text-muted-foreground">
             Results for <span className="font-medium text-foreground">{fileName}</span>
