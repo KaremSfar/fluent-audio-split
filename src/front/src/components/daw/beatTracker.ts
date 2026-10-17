@@ -4,14 +4,17 @@
  * Pipeline (after Ellis 2007, "Beat Tracking by Dynamic Programming", as popularised by librosa):
  *  1. Decimate to ~11 kHz (box filter), normalise loudness.
  *  2. Onset strength = log-magnitude spectral flux (Hann STFT, 46 ms window, ~11.6 ms hop), with a
- *     separate low-band (< 160 Hz) flux used for the downbeat heuristic. Detrended + std-normalised.
- *  3. Global tempo = autocorrelation of the onset envelope, weighted by a log-normal prior around
- *     120 BPM (limited to minBpm..maxBpm), refined by parabolic interpolation.
+ *     separate low-band (< 160 Hz) flux used for the downbeat heuristic. Detrended, then normalised by
+ *     a LOCAL level (floored) so a quiet intro keeps its onsets, then by the global std.
+ *  3. Global tempo = vote of per-region tempi (10 s windows, weighted by how periodic each is) plus the
+ *     whole-song autocorrelation, each under a log-normal prior around 120 BPM (minBpm..maxBpm). A song
+ *     whose drums start late is therefore judged by the part that has a beat, not the whole file.
  *  4. Local tempo = windowed autocorrelation (8 s window, 1 s hop) restricted to ±30 % of the global
  *     period (no octave jumps), median-smoothed. This lets the DP follow drifting, live-played tempo.
  *  5. Dynamic programming: score(t) = onset(t) + max_τ [score(τ) − α·log²((t−τ)/P(t))], backtracked
  *     from the last strong beat, weak leading/trailing beats trimmed, each beat refined to the local
- *     onset peak (sub-frame, parabolic).
+ *     onset peak (sub-frame, parabolic). The grid is then extended back to t = 0 from the first confident
+ *     beat at the fitted period (`leadInBeats`), instead of starting where the drums come in.
  *  6. Downbeat phase = the beat phase (mod beatsPerBar) with the strongest low-band accents.
  */
 
@@ -36,6 +39,8 @@ export interface BeatTrackResult {
   downbeatIndex: number;
   /** Per-beat accent strength (low-band weighted), for re-estimating the downbeat. */
   accents: number[];
+  /** Leading beats that were extrapolated back from the first confident beat (no onset evidence). */
+  leadInBeats: number;
 }
 
 const TARGET_RATE = 11025;
@@ -44,11 +49,21 @@ const TIGHTNESS = 100;
 const LOCAL_WINDOW_SEC = 8;
 const LOCAL_HOP_SEC = 1;
 const LOCAL_BAND = 1.45;
+/** Region tempo voting. */
+const REGION_WINDOW_SEC = 10;
+const REGION_HOP_SEC = 2.5;
+/** Windows quieter than this (mean squared normalised flux; ~1 on average) carry no beat evidence. */
+const REGION_MIN_ENERGY = 0.05;
+/** Onset-level normalisation: ~4 s local RMS, never boosting more than 1/LOCAL_FLOOR× the global RMS. */
+const LOCAL_NORM_SEC = 4;
+const LOCAL_FLOOR = 0.12;
+/** Beats used to fit the period for the extrapolated lead-in. */
+const LEAD_IN_FIT_BEATS = 32;
 const MIN_SECONDS = 3;
 /** Spectral flux peaks slightly before the perceived onset; measured on synthetic clicks/drums. */
 const LATENCY_SEC = 0.008;
 
-const EMPTY: BeatTrackResult = { beats: [], bpm: 0, confidence: 0, downbeatIndex: 0, accents: [] };
+const EMPTY: BeatTrackResult = { beats: [], bpm: 0, confidence: 0, downbeatIndex: 0, accents: [], leadInBeats: 0 };
 
 // ── Small DSP helpers ─────────────────────────────────────────────────────────
 
@@ -167,6 +182,23 @@ function stdNormalise(x: Float64Array): boolean {
   return true;
 }
 
+/**
+ * Divide by the local RMS (floored relative to the global RMS) so quiet passages keep their onsets
+ * instead of being flattened by the loud ones. Silence stays silent: the floor caps the boost.
+ */
+function localNormalise(x: Float64Array, fps: number): boolean {
+  const n = x.length;
+  let e = 0;
+  for (let i = 0; i < n; i++) e += x[i] * x[i];
+  const g = Math.sqrt(e / (n || 1));
+  if (!(g > 1e-9)) return false;
+  const sq = new Float64Array(n);
+  for (let i = 0; i < n; i++) sq[i] = x[i] * x[i];
+  const local = movingAverage(sq, Math.round(LOCAL_NORM_SEC * fps));
+  for (let i = 0; i < n; i++) x[i] /= Math.max(Math.sqrt(local[i]), LOCAL_FLOOR * g);
+  return true;
+}
+
 // ── Onset envelope ────────────────────────────────────────────────────────────
 
 interface Onsets {
@@ -237,7 +269,7 @@ function onsetEnvelope(x: Float32Array, rate: number, progress: (f: number) => v
   // Detrend with a ~1 s moving average, half-wave rectify, std-normalise.
   const trend = movingAverage(env, Math.round(fps));
   for (let i = 0; i < frames; i++) env[i] = Math.max(0, env[i] - trend[i]);
-  if (!stdNormalise(env)) return null;
+  if (!localNormalise(env, fps) || !stdNormalise(env)) return null;
   const lowTrend = movingAverage(low, Math.round(fps));
   for (let i = 0; i < frames; i++) low[i] = Math.max(0, low[i] - lowTrend[i]);
   stdNormalise(low);
@@ -260,29 +292,101 @@ function autocorr(x: Float64Array, from: number, to: number, maxLag: number): Fl
   return ac;
 }
 
-function globalPeriod(env: Float64Array, fps: number, minBpm: number, maxBpm: number, priorBpm: number): { period: number; periodicity: number } {
-  const lo = Math.max(1, Math.floor((fps * 60) / maxBpm));
-  const hi = Math.ceil((fps * 60) / minBpm);
-  const ac = autocorr(env, 0, env.length, Math.min(env.length - 1, 2 * hi + 2));
-  if (!(ac[0] > 0)) return { period: (fps * 60) / priorBpm, periodicity: 0 };
+interface LagPick {
+  /** Best lag (frames), parabolically refined. */
+  lag: number;
+  /** ac[lag] / ac[0]: how periodic the segment is (≈ 0.1 noise … 0.7–1 steady beats). */
+  strength: number;
+}
+
+/** Best tempo lag in an autocorrelation under the log-normal tempo prior (slightly favouring a lag whose double is also strong). */
+function pickLag(ac: Float64Array, fps: number, lo: number, hi: number, priorBpm: number): LagPick | null {
+  if (!(ac[0] > 0)) return null;
   let best = lo;
   let bestScore = -Infinity;
-  const score = (l: number) => {
-    const bpm = (fps * 60) / l;
-    const w = Math.exp(-0.5 * (Math.log2(bpm / priorBpm) / 0.9) ** 2);
-    const twice = 2 * l < ac.length ? ac[2 * l] : 0;
-    return w * (ac[l] + 0.5 * Math.max(0, twice));
-  };
   for (let l = lo; l <= hi && l < ac.length; l++) {
-    const s = score(l);
+    const bpm = (fps * 60) / l;
+    const w = Math.exp(-0.5 * (Math.log2(bpm / priorBpm) / 0.7) ** 2);
+    const twice = 2 * l < ac.length ? ac[2 * l] : 0;
+    const s = w * (ac[l] + 0.3 * Math.max(0, twice));
     if (s > bestScore) {
       bestScore = s;
       best = l;
     }
   }
-  const refined =
-    best > lo && best < hi && best + 1 < ac.length ? best + parabolic(ac[best - 1], ac[best], ac[best + 1]) : best;
-  return { period: refined, periodicity: Math.max(0, ac[best] / ac[0]) };
+  const lag = best > lo && best < hi && best + 1 < ac.length ? best + parabolic(ac[best - 1], ac[best], ac[best + 1]) : best;
+  return { lag, strength: Math.max(0, ac[best] / ac[0]) };
+}
+
+/**
+ * Global beat period. Tempo is voted on by overlapping 10 s regions (each weighted by its periodicity)
+ * together with the whole-song autocorrelation, so an intro or breakdown without a pulse can't blur it.
+ * `regionPeriodicity` is the periodicity of the best half of the regions that agree with the winner.
+ */
+function estimateTempo(
+  env: Float64Array,
+  fps: number,
+  minBpm: number,
+  maxBpm: number,
+  priorBpm: number,
+): { period: number; periodicity: number; regionPeriodicity: number } {
+  const fallback = { period: (fps * 60) / priorBpm, periodicity: 0, regionPeriodicity: 0 };
+  const lo = Math.max(1, Math.floor((fps * 60) / maxBpm));
+  const hi = Math.ceil((fps * 60) / minBpm);
+  const maxLag = Math.min(env.length - 1, 2 * hi + 2);
+  const whole = pickLag(autocorr(env, 0, env.length, maxLag), fps, lo, hi, priorBpm);
+  if (!whole) return fallback;
+
+  const voters: LagPick[] = [whole];
+  const regions: LagPick[] = [];
+  const W = Math.round(REGION_WINDOW_SEC * fps);
+  const hop = Math.max(1, Math.round(REGION_HOP_SEC * fps));
+  for (let s = 0; s + W <= env.length; s += hop) {
+    let energy = 0;
+    for (let i = s; i < s + W; i++) energy += env[i] * env[i];
+    if (energy / W < REGION_MIN_ENERGY) continue;
+    const pick = pickLag(autocorr(env, s, s + W, Math.min(W - 1, maxLag)), fps, lo, hi, priorBpm);
+    if (pick) {
+      voters.push(pick);
+      regions.push(pick);
+    }
+  }
+
+  // Each voter supports every candidate lag within ~3 %; the best-supported candidate wins.
+  const support = (cand: number, tol: number) =>
+    voters.reduce((acc, v) => {
+      const d = Math.log(v.lag / cand);
+      return acc + v.strength * Math.exp(-0.5 * (d / tol) ** 2);
+    }, 0);
+  let winner = whole.lag;
+  let winnerSupport = -Infinity;
+  for (const v of voters) {
+    const sup = support(v.lag, 0.03);
+    if (sup > winnerSupport) {
+      winnerSupport = sup;
+      winner = v.lag;
+    }
+  }
+  // Refine: strength-weighted mean of the voters that agree (within 5 %).
+  let num = 0;
+  let den = 0;
+  for (const v of voters) {
+    if (Math.abs(Math.log(v.lag / winner)) < 0.05) {
+      num += v.strength * v.lag;
+      den += v.strength;
+    }
+  }
+  const period = den > 0 ? num / den : winner;
+
+  let regionPeriodicity = whole.strength;
+  if (regions.length > 0) {
+    const agreeing = regions
+      .map((r) => (Math.abs(Math.log(r.lag / period)) < 0.06 ? r.strength : 0))
+      .sort((a, b) => b - a);
+    const top = agreeing.slice(0, Math.ceil(agreeing.length / 2));
+    regionPeriodicity = top.reduce((a, b) => a + b, 0) / top.length;
+  }
+  return { period, periodicity: whole.strength, regionPeriodicity };
 }
 
 /** Per-frame beat period (frames), following slow tempo drift around the global period. */
@@ -411,6 +515,30 @@ function trackDp(score: Float64Array, per: Float64Array): number[] {
   return beats;
 }
 
+/**
+ * Times (ascending, ≥ 0) of beats before `beats[0]`, spaced by the least-squares period of the first
+ * beats (far more accurate than one interval: the error would otherwise accumulate over a long intro).
+ */
+function leadInBeats(beats: number[]): number[] {
+  const n = Math.min(beats.length, LEAD_IN_FIT_BEATS);
+  if (n < 4) return [];
+  let sx = 0;
+  let sy = 0;
+  let sxy = 0;
+  let sxx = 0;
+  for (let i = 0; i < n; i++) {
+    sx += i;
+    sy += beats[i];
+    sxy += i * beats[i];
+    sxx += i * i;
+  }
+  const period = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+  if (!(period > 0.2 && period < 2)) return [];
+  const out: number[] = [];
+  for (let t = beats[0] - period; t >= 0; t -= period) out.push(t);
+  return out.reverse();
+}
+
 /** Index (0..beatsPerBar−1) of the beat phase with the strongest mean accent. */
 export function estimateDownbeat(accents: number[], beatsPerBar: number): number {
   const B = Math.max(1, Math.round(beatsPerBar));
@@ -464,7 +592,7 @@ export function trackBeats(samples: Float32Array, sampleRate: number, opts: Beat
   }
   const { env, low, fps, hopSec } = onsets;
 
-  const { period, periodicity: globalPeriodicity } = globalPeriod(env, fps, minBpm, maxBpm, priorBpm);
+  const { period, periodicity: globalPeriodicity, regionPeriodicity } = estimateTempo(env, fps, minBpm, maxBpm, priorBpm);
   progress(0.75);
   const { per, periodicity: localPeriodicity } = localPeriods(env, fps, period);
   progress(0.85);
@@ -502,7 +630,7 @@ export function trackBeats(samples: Float32Array, sampleRate: number, opts: Beat
     offBeat += score[Math.round((frames[i] + frames[i + 1]) / 2)];
   }
   const contrast = Math.max(0, (onBeat - offBeat) / (onBeat + offBeat + 1e-9));
-  const periodicity = Number.isFinite(localPeriodicity) ? Math.max(localPeriodicity, globalPeriodicity) : globalPeriodicity;
+  const periodicity = Math.max(globalPeriodicity, regionPeriodicity, Number.isFinite(localPeriodicity) ? localPeriodicity : 0);
   // Periodicity (noise ≈ 0.1, random hits ≈ 0.15, steady beats 0.7–1) dominates; contrast is biased upward on noise.
   const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
   const confidence = 0.8 * clamp01((periodicity - 0.08) / 0.42) + 0.2 * clamp01(contrast);
@@ -510,13 +638,20 @@ export function trackBeats(samples: Float32Array, sampleRate: number, opts: Beat
   const intervals: number[] = [];
   for (let i = 1; i < beats.length; i++) intervals.push(beats[i] - beats[i - 1]);
   const bpm = 60 / median(intervals);
+  const downbeat = estimateDownbeat(accents, beatsPerBar);
+
+  // Extend the grid back to t = 0 from the first confident beat, at the period fitted over its first
+  // beats. A drum entry late in the song then doesn't leave the intro without a grid.
+  const lead = leadInBeats(beats);
+  const B = Math.max(1, Math.round(beatsPerBar));
   progress(1);
   return {
-    beats,
+    beats: [...lead, ...beats],
     bpm: Math.round(bpm * 10) / 10,
     confidence: Math.round(confidence * 100) / 100,
-    downbeatIndex: estimateDownbeat(accents, beatsPerBar),
-    accents,
+    downbeatIndex: (downbeat + lead.length) % B,
+    accents: [...new Array<number>(lead.length).fill(0), ...accents],
+    leadInBeats: lead.length,
   };
 }
 

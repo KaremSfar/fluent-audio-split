@@ -26,6 +26,10 @@ export interface AnalysisSummary {
   followed: boolean;
   /** First downbeat time, for "Use as fixed tempo". */
   downbeatSec: number;
+  /** Beats at the start that were extended back from where the beat is first detected (0 = none). */
+  leadInBeats: number;
+  /** Where the beat is first detected, in seconds. */
+  confidentFromSec: number;
 }
 
 interface MetronomeControlsProps {
@@ -285,6 +289,9 @@ export function MetronomeControls(p: MetronomeControlsProps) {
           <span>
             Beat map from {p.summary.source}: ≈{p.summary.bpm.toFixed(1)} BPM, {p.summary.beats} beats, confidence{' '}
             {Math.round(p.summary.confidence * 100)}%.
+            {p.summary.leadInBeats > 0 &&
+              p.summary.confidentFromSec >= 2 &&
+              ` The beat is first detected at ${formatClock(p.summary.confidentFromSec).slice(0, 8)}; the ${p.summary.leadInBeats} beats before it are extended back from there.`}
             {p.summary.followed
               ? ' The click now follows the song.'
               : ' Low confidence: the click may not lock to this song.'}

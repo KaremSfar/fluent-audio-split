@@ -16,6 +16,7 @@ import { StemSyncEngine, type LoopRegion } from '@/components/execution/stemSync
 import { TransportBar } from '@/components/daw/TransportBar';
 import { TimeRuler } from '@/components/daw/TimeRuler';
 import { TrackLane } from '@/components/daw/TrackLane';
+import { ClickLane } from '@/components/daw/ClickLane';
 import { MasterStrip } from '@/components/daw/MasterStrip';
 import { MetronomeControls, type AnalysisSummary } from '@/components/daw/MetronomeControls';
 import { BeatFlash } from '@/components/daw/BeatFlash';
@@ -393,6 +394,8 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
         source: r.source,
         followed,
         downbeatSec: r.beats[r.downbeatIndex],
+        leadInBeats: r.leadInBeats,
+        confidentFromSec: r.beats[r.leadInBeats] ?? 0,
       });
       announce(
         `Beat map ready: about ${Math.round(r.bpm)} BPM, confidence ${Math.round(r.confidence * 100)} percent` +
@@ -617,45 +620,7 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
                 onResetClip={resetClip}
               />
             }
-          >
-            <MetronomeControls
-              settings={mixer.metronome}
-              onChange={(patch) => {
-                setClick(patch);
-                if (patch.mode) announce(patch.mode === 'follow' ? 'Click follows the song' : 'Fixed tempo click');
-              }}
-              onTap={tap}
-              onAnalyze={() => void analyze()}
-              analyzing={analyzing}
-              analyzeProgress={analyzeProgress}
-              canAnalyze={decodedBytes > 0}
-              analyzeError={analyzeError}
-              summary={summary}
-              onDismissSummary={() => setSummary(null)}
-              onUseFixed={() => {
-                if (!summary) return;
-                setClick({ mode: 'fixed', bpm: clampBpm(summary.bpm), offsetSec: Math.round(summary.downbeatSec * 1000) / 1000 });
-                announce(`Fixed tempo ${summary.bpm.toFixed(1)} BPM applied`);
-                setSummary(null);
-              }}
-              onSetDownbeat={setDownbeat}
-              onNudge={nudge}
-              onAnchor={addAnchor}
-              onRemoveAnchor={(i) => {
-                setClick({ anchors: anchors.filter((_, j) => j !== i) });
-                announce('Anchor removed');
-              }}
-              onClearAnchors={() => {
-                setClick({ anchors: [] });
-                announce('Anchors cleared');
-              }}
-              onHalf={() => scaleTempo(0.5)}
-              onDouble={() => scaleTempo(2)}
-              practice={!!mixer.practice}
-              onTogglePractice={togglePractice}
-              canPractice={readyTracks.length > 0}
-            />
-          </TransportBar>
+          />
 
           {empty && !running ? (
             <EmptyResults
@@ -694,6 +659,55 @@ function ResultsView({ executionId, results }: { executionId: string; results: E
                 </div>
               </div>
               <div className="relative flex flex-1 flex-col">
+                <ClickLane
+                  engine={engine}
+                  duration={duration}
+                  grid={grid}
+                  settings={mixer.metronome}
+                  onChange={(patch) => {
+                    setClick(patch);
+                    if (patch.mode) announce(patch.mode === 'follow' ? 'Click follows the song' : 'Fixed tempo click');
+                  }}
+                  sharedPlayhead={wide}
+                >
+                <MetronomeControls
+                  settings={mixer.metronome}
+                  onChange={(patch) => {
+                    setClick(patch);
+                    if (patch.mode) announce(patch.mode === 'follow' ? 'Click follows the song' : 'Fixed tempo click');
+                  }}
+                  onTap={tap}
+                  onAnalyze={() => void analyze()}
+                  analyzing={analyzing}
+                  analyzeProgress={analyzeProgress}
+                  canAnalyze={decodedBytes > 0}
+                  analyzeError={analyzeError}
+                  summary={summary}
+                  onDismissSummary={() => setSummary(null)}
+                  onUseFixed={() => {
+                    if (!summary) return;
+                    setClick({ mode: 'fixed', bpm: clampBpm(summary.bpm), offsetSec: Math.round(summary.downbeatSec * 1000) / 1000 });
+                    announce(`Fixed tempo ${summary.bpm.toFixed(1)} BPM applied`);
+                    setSummary(null);
+                  }}
+                  onSetDownbeat={setDownbeat}
+                  onNudge={nudge}
+                  onAnchor={addAnchor}
+                  onRemoveAnchor={(i) => {
+                    setClick({ anchors: anchors.filter((_, j) => j !== i) });
+                    announce('Anchor removed');
+                  }}
+                  onClearAnchors={() => {
+                    setClick({ anchors: [] });
+                    announce('Anchors cleared');
+                  }}
+                  onHalf={() => scaleTempo(0.5)}
+                  onDouble={() => scaleTempo(2)}
+                  practice={!!mixer.practice}
+                  onTogglePractice={togglePractice}
+                  canPractice={readyTracks.length > 0}
+                />
+                </ClickLane>
                 {tracks.map((t, i) => (
                   <TrackLane
                     key={t.id}

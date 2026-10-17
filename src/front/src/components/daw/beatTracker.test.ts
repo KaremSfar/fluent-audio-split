@@ -120,6 +120,47 @@ describe('trackBeats', () => {
     expect(k % 4).toBe(2);
   });
 
+  it('late drums: keeps the grid through a beat-less intro and finds the drum tempo', () => {
+    // 20 s of near-silence, then a steady 120 BPM from t = 20.25 s.
+    const truth = rampTimes(120, 120, 60, 20.25);
+    const r = trackBeats(synth(truth, 60), SR);
+    expect(r.bpm).toBeGreaterThan(118);
+    expect(r.bpm).toBeLessThan(122);
+    expect(r.confidence).toBeGreaterThan(0.5);
+    // The grid reaches back into the intro instead of starting at the drum entry…
+    expect(r.beats[0]).toBeLessThan(1.5);
+    // …and every beat, intro included, sits on the drum grid (period 0.5 s, phase 0.25 s).
+    for (const b of r.beats) {
+      const off = Math.abs(((b - 0.25 + 0.25) % 0.5) - 0.25);
+      expect(off).toBeLessThan(0.03);
+    }
+  });
+
+  it('takes the tempo from the steady region, not the whole song', () => {
+    // 35 s of irregular hits, then 25 s of a steady 100 BPM.
+    const rand = rng(21);
+    const times: number[] = [];
+    for (let t = 0.3; t < 35; t += 0.2 + rand() * 0.7) times.push(t);
+    const steady = rampTimes(100, 100, 60, 35.2);
+    const r = trackBeats(synth([...times, ...steady], 60), SR);
+    expect(r.bpm).toBeGreaterThan(98);
+    expect(r.bpm).toBeLessThan(102);
+    expect(r.confidence).toBeGreaterThan(0.4);
+  });
+
+  it('does not let a quiet intro hide the tempo', () => {
+    // 100 BPM clicks at 8 % level for 25 s, then at full level for 35 s.
+    const truth = rampTimes(100, 100, 60, 0.3);
+    const x = synth(truth, 60);
+    for (let i = 0; i < SR * 25; i++) x[i] *= 0.08;
+    const r = trackBeats(x, SR);
+    expect(r.bpm).toBeGreaterThan(98);
+    expect(r.bpm).toBeLessThan(102);
+    const early = errors(truth.filter((t) => t < 25), r.beats);
+    expect(early.length).toBeGreaterThan(30);
+    expect(Math.max(...early)).toBeLessThan(0.03);
+  });
+
   it('reports monotonic progress ending at 1', () => {
     const seen: number[] = [];
     trackBeats(synth(rampTimes(120, 120, 10), 10), SR, { onProgress: (p) => seen.push(p) });

@@ -37,6 +37,27 @@ describe('analyzeBeats', () => {
     expect(progress[progress.length - 1]).toBeCloseTo(1, 6);
   });
 
+  it('falls back to the full mix when the drums stem has no usable beat', async () => {
+    const rand = (() => {
+      let x = 5;
+      return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 0x100000000);
+    })();
+    const faintDrums = new Float32Array(SR * 30).map(() => (rand() - 0.5) * 0.001);
+    const r = await analyzeBeats(
+      [fakeBuffer(faintDrums), fakeBuffer(clicks(110, 30))],
+      ['Drums', 'Other'],
+      { beatsPerBar: 4 },
+    );
+    expect(r.source).toBe('all stems');
+    expect(r.bpm).toBeGreaterThan(108);
+    expect(r.bpm).toBeLessThan(112);
+  });
+
+  it('keeps the drums stem when it is at least as confident as the mix', async () => {
+    const r = await analyzeBeats([fakeBuffer(clicks(100, 25)), fakeBuffer(clicks(100, 25))], ['Drums', 'Other'], { beatsPerBar: 4 });
+    expect(r.source).toBe('Drums');
+  });
+
   it('rejects when nothing is loaded', async () => {
     await expect(analyzeBeats([], [], { beatsPerBar: 4 })).rejects.toThrow();
   });

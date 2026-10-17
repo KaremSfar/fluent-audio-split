@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LoopRegion, StemSyncEngine } from '@/components/execution/stemSyncEngine';
-import { beatIndexFloor, type Anchor, type BeatGrid } from './beatGrid';
+import type { Anchor, BeatGrid } from './beatGrid';
+import { gridPaths } from './gridPaths';
 import { useTransportPos } from './useTransportPos';
 import { cn } from '@/lib/utils';
 
@@ -18,33 +19,7 @@ interface TimeRulerProps {
 }
 
 const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
-const MIN_TICK_PX = 4;
 const label = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-
-/** Bar/beat tick paths for the visible song, in pixel space (works for fixed grids and tempo maps). */
-function gridPaths(grid: BeatGrid, duration: number, width: number): { bars: string; beats: string } {
-  const empty = { bars: '', beats: '' };
-  if (duration <= 0 || width <= 0) return empty;
-  const k0 = Math.max(beatIndexFloor(grid, 0), -100000);
-  const k1 = Math.min(Math.ceil(grid.beatIndexAt(duration)), k0 + 50000);
-  const n = k1 - k0;
-  if (n <= 0) return empty;
-  const avgBeatSec = (grid.beatTime(k1) - grid.beatTime(k0)) / n;
-  const beatPx = (avgBeatSec / duration) * width;
-  const drawBeats = beatPx >= MIN_TICK_PX;
-  const drawBars = beatPx * grid.beatsPerBar >= MIN_TICK_PX;
-  if (!drawBars) return empty;
-  let bars = '';
-  let beats = '';
-  for (let k = k0; k <= k1; k++) {
-    const t = grid.beatTime(k);
-    if (t < 0 || t > duration) continue;
-    const x = ((t / duration) * width).toFixed(1);
-    if (grid.beatInBar(k) === 0) bars += `M${x} 17V32`;
-    else if (drawBeats) beats += `M${x} 24V32`;
-  }
-  return { bars, beats };
-}
 
 /** Time ruler (click/drag to seek, Shift+click for loop edges) with playhead, bar/beat grid, loop band and anchors. */
 export function TimeRuler({ engine, duration, grid, showGrid, anchors, loop, onLoopEdge }: TimeRulerProps) {

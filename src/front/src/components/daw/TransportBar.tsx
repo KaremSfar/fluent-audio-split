@@ -24,11 +24,9 @@ interface TransportBarProps {
   onToStart: () => void;
   /** Master section (right end of the main row). */
   master: React.ReactNode;
-  /** Metronome controls (second row). */
-  children: React.ReactNode;
 }
 
-/** Sticky transport: shared play/stop/seek, clock, bar·beat readout, loop, then the metronome/master controls. */
+/** Sticky transport: shared play/stop/seek, clock, bar·beat readout, loop and the master fader. */
 export function TransportBar({
   engine,
   playing,
@@ -44,7 +42,6 @@ export function TransportBar({
   onStop,
   onToStart,
   master,
-  children,
 }: TransportBarProps) {
   const pos = useTransportPos(engine);
   const { bar, beat } = barBeatAt(grid, pos);
@@ -157,8 +154,6 @@ export function TransportBar({
 
         <div className="flex flex-1 justify-end">{master}</div>
       </div>
-
-      <div className="border-t border-daw-border px-4 py-2.5">{children}</div>
     </div>
   );
 }
